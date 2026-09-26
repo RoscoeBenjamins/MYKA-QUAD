@@ -2,9 +2,10 @@
 const http = require('http');
 const { makeContext } = require('./gas-harness');
 const ctx = makeContext({
-  UrlFetchApp: { fetch(url, opt) { console.log('[mock gmail] send', url, (opt.payload || '').length, 'bytes'); return { getResponseCode: () => 200, getContentText: () => '{"id":"mock"}' }; } },
+  UrlFetchApp: { fetch(url, opt) { console.log('[mock gmail] send', url, (opt.payload || '').length, 'bytes'); return { getResponseCode: () => 200, getContentText: () => '{"ok":true,"from":"mykaquadent@gmail.com"}' }; } },
   ScriptApp: { getOAuthToken: () => 'mock' },
 });
+ctx.__props.set('MAILER_URL', 'https://mock-mailer/exec'); ctx.__props.set('MAILER_SECRET', 'x'.repeat(40));
 const port = process.env.PORT || 8787;
 http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');

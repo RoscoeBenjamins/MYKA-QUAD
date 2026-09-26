@@ -174,7 +174,7 @@ export function EmailDocButton({ kind, no, targetId, defaultTo, customerName, su
       <Dialog open={open} onOpenChange={v => !busy && setOpen(v)}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Email {kind} {no}</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground -mt-2">Sent from <b>{s.emailSenderName || s.companyName} &lt;{s.emailFrom || s.email}&gt;</b> with the {kind} attached as a PDF. Replies go to {s.emailReplyTo || s.emailFrom}.</p>
+          <p className="text-xs text-muted-foreground -mt-2">Sent from <b>{s.emailSenderName || s.companyName} &lt;{s.email}&gt;</b> with the {kind} attached as a PDF. Replies go to {s.emailReplyTo || s.email}.</p>
           {emailedAt && <p className="text-xs bg-accent text-accent-foreground rounded px-2 py-1">Already emailed {new Date(emailedAt).toLocaleString('en-GB')} to {emailedTo}</p>}
           <div className="space-y-3">
             <Field label="To" hint={!defaultTo ? 'No email saved for this customer — add it on the Customers page to prefill next time.' : 'Separate several addresses with commas'}><TextInput type="email" multiple value={to} onChange={e => setTo(e.target.value)} placeholder="customer@example.com" /></Field>

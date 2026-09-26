@@ -176,8 +176,7 @@ const SETTING_FIELDS: [keyof Settings, string, string?][] = [
   ['invPrefix', 'Invoice prefix'], ['invYear', 'Invoice year'], ['invNext', 'Next invoice number', 'Only move forward — never reuse numbers'],
   ['rctPrefix', 'Receipt prefix'], ['rctYear', 'Receipt year'], ['rctNext', 'Next receipt number'],
   ['purPrefix', 'Purchase prefix'], ['purNext', 'Next purchase number'], ['expPrefix', 'Expense prefix'], ['expNext', 'Next expense number'],
-  ['emailFrom', 'Send emails from', 'Must be added in Gmail → Settings → Accounts → "Send mail as" first, otherwise Gmail uses fafale17@gmail.com'],
-  ['emailSenderName', 'Sender name on emails'], ['emailReplyTo', 'Reply-To address'],
+  ['emailSenderName', 'Sender name on emails', 'Emails are sent from mykaquadent@gmail.com by the Myka Quad Mailer'], ['emailReplyTo', 'Reply-To address'],
   ['twoFactorPolicy', '2-step verification', 'Who must use Google / Microsoft Authenticator to sign in'],
 ]
 

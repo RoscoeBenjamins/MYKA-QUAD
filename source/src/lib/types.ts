@@ -14,7 +14,7 @@ export interface Settings {
   bankName: string; bankAccount: string; currency: string; vatRate: string; defaultVatStatus: string
   invPrefix: string; invYear: string; invNext: string; rctPrefix: string; rctYear: string; rctNext: string
   purPrefix: string; purNext: string; expPrefix: string; expNext: string; paymentTermsDays: string
-  twoFactorPolicy: string; emailFrom: string; emailReplyTo: string; emailSenderName: string
+  twoFactorPolicy: string; emailReplyTo: string; emailSenderName: string
   [k: string]: string
 }
 

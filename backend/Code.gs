@@ -71,7 +71,7 @@ var DEFAULT_SETTINGS = {
   defaultVatStatus: 'Non-VAT', invPrefix: 'INV', invYear: '2026', invNext: '1057',
   rctPrefix: 'RCT', rctYear: '2026', rctNext: '2019', purPrefix: 'PUR', purNext: '5001',
   expPrefix: 'EXP', expNext: '7001', jeNext: '1', custNext: '1', paymentTermsDays: '14',
-  twoFactorPolicy: 'all', emailFrom: 'mykaquadent@gmail.com', emailReplyTo: 'mykaquadent@gmail.com', emailSenderName: 'MYKA QUAD LIMITED'
+  twoFactorPolicy: 'all', emailReplyTo: 'mykaquadent@gmail.com', emailSenderName: 'MYKA QUAD LIMITED'
 };
 
 // =============================================================================
@@ -910,7 +910,7 @@ HANDLERS.saveAccount = function (p, u) {
 // ---- admin ------------------------------------------------------------------------
 var SETTING_KEYS = ['companyName', 'address', 'email', 'phone', 'momo', 'bankName', 'bankAccount', 'currency', 'vatRate',
   'defaultVatStatus', 'invPrefix', 'invYear', 'invNext', 'rctPrefix', 'rctYear', 'rctNext', 'purPrefix', 'purNext',
-  'expPrefix', 'expNext', 'paymentTermsDays', 'twoFactorPolicy', 'emailFrom', 'emailReplyTo', 'emailSenderName'];
+  'expPrefix', 'expNext', 'paymentTermsDays', 'twoFactorPolicy', 'emailReplyTo', 'emailSenderName'];
 HANDLERS.saveSettings = function (p, u) {
   SETTING_KEYS.forEach(function (k) { if (p[k] !== undefined) setSetting_(k, p[k]); });
   audit_(u.username, 'saveSettings', '');
@@ -1073,42 +1073,33 @@ HANDLERS.regenerateRecovery = function (p, u) {
 };
 
 // =============================================================================
-//  Email invoices / receipts (Gmail API, gmail.send scope only)
+//  Email invoices / receipts (sent by the mykaquadent@gmail.com mailer)
 // =============================================================================
 function validEmails_(list, label) {
   var arr = String(list || '').split(/[,;\s]+/).filter(function (x) { return x; });
   arr.forEach(function (e) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error(label + ': "' + e + '" is not a valid email address.'); });
   return arr;
 }
-function mimeWord_(s) { return '=?UTF-8?B?' + Utilities.base64Encode(s, Utilities.Charset.UTF_8) + '?='; }
-function wrap76_(b64) { return b64.replace(/(.{76})/g, '$1\r\n'); }
 function escHtml_(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
-function sendGmail_(o) {
-  var boundary = 'myka_' + Utilities.getUuid().replace(/-/g, '');
-  var alt = 'alt_' + Utilities.getUuid().replace(/-/g, '');
-  var headers = [
-    'From: ' + mimeWord_(o.fromName) + ' <' + o.from + '>',
-    'To: ' + o.to.join(', ')
-  ];
-  if (o.cc.length) headers.push('Cc: ' + o.cc.join(', '));
-  if (o.replyTo) headers.push('Reply-To: ' + o.replyTo);
-  headers.push('Subject: ' + mimeWord_(o.subject), 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="' + boundary + '"');
-  var body = headers.join('\r\n') + '\r\n\r\n' +
-    '--' + boundary + '\r\nContent-Type: multipart/alternative; boundary="' + alt + '"\r\n\r\n' +
-    '--' + alt + '\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap76_(Utilities.base64Encode(o.text, Utilities.Charset.UTF_8)) + '\r\n' +
-    '--' + alt + '\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap76_(Utilities.base64Encode(o.html, Utilities.Charset.UTF_8)) + '\r\n' +
-    '--' + alt + '--\r\n' +
-    '--' + boundary + '\r\nContent-Type: application/pdf; name="' + o.filename + '"\r\nContent-Disposition: attachment; filename="' + o.filename + '"\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap76_(o.pdfBase64) + '\r\n' +
-    '--' + boundary + '--';
-  var raw = Utilities.base64EncodeWebSafe(body, Utilities.Charset.UTF_8).replace(/=+$/, '');
-  var r = UrlFetchApp.fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-    payload: JSON.stringify({ raw: raw })
+/**
+ * Emails are sent by a separate "Myka Quad Mailer" script that lives in the
+ * mykaquadent@gmail.com account and sends from that mailbox. This project never
+ * gets Gmail permission. Script Properties needed here: MAILER_URL, MAILER_SECRET.
+ */
+function sendViaMailer_(o) {
+  var p = PropertiesService.getScriptProperties();
+  var url = p.getProperty('MAILER_URL'), secret = p.getProperty('MAILER_SECRET');
+  if (!url || !secret) throw new Error("Email isn't set up yet — the mykaquadent mailer is not connected.");
+  var r = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'text/plain', muteHttpExceptions: true, followRedirects: true,
+    payload: JSON.stringify({ secret: secret, to: o.to, cc: o.cc, replyTo: o.replyTo, name: o.fromName, subject: o.subject,
+                              text: o.text, html: o.html, pdfBase64: o.pdfBase64, filename: o.filename })
   });
-  if (r.getResponseCode() >= 300) throw new Error('Gmail could not send the email (' + r.getResponseCode() + '): ' + r.getContentText().slice(0, 200));
-  return JSON.parse(r.getContentText()).id;
+  var body;
+  try { body = JSON.parse(r.getContentText()); } catch (e) { throw new Error('The mailer did not respond properly (' + r.getResponseCode() + '). Is it deployed with access "Anyone"?'); }
+  if (!body.ok) throw new Error('Email not sent: ' + (body.error || 'unknown error'));
+  return body;
 }
 
 HANDLERS.emailDocument = function (p, u) {
@@ -1143,16 +1134,18 @@ HANDLERS.emailDocument = function (p, u) {
     (kind === 'invoice' ? '<p style="background:#f3f7f1;border-left:3px solid #0b5d0b;padding:8px 12px">Payment: ' + escHtml_(pay) + '<br>Please quote <b>' + escHtml_(no) + '</b> as the reference.</p>' : '<p>Thank you for your payment.</p>') +
     '<p>The ' + kind + ' is attached as a PDF.</p>' +
     '<p style="color:#666;font-size:12px;border-top:1px solid #ddd;padding-top:8px">' + escHtml_(s.companyName) + '<br>' + escHtml_(s.address) + '<br>' + escHtml_(s.phone) + ' · ' + escHtml_(s.email) + '</p></div>';
-  var id = sendGmail_({ from: s.emailFrom || s.email, fromName: s.emailSenderName || s.companyName, replyTo: s.emailReplyTo || '',
+  var sent = sendViaMailer_({ fromName: s.emailSenderName || s.companyName, replyTo: s.emailReplyTo || '',
     to: to, cc: cc, subject: subject, text: text, html: html, pdfBase64: pdf, filename: no + '.pdf' });
   doc.emailedAt = new Date().toISOString();
   doc.emailedTo = to.concat(cc).join(', ');
   update_(kind === 'invoice' ? 'Invoices' : 'Receipts', doc._row, doc);
   audit_(u.username, 'emailDocument', no + ' → ' + doc.emailedTo);
-  return { ok: true, id: id, emailedAt: doc.emailedAt, emailedTo: doc.emailedTo };
+  return { ok: true, from: sent.from, emailedAt: doc.emailedAt, emailedTo: doc.emailedTo };
 };
 
-/** Run once from the editor after adding the Gmail permission, to approve it. */
-function authorizeEmail() {
-  Logger.log('Token ok: ' + !!ScriptApp.getOAuthToken() + ' — email sending is authorised.');
+/** Run once from the editor to approve this version's permissions (Sheets + calling the mailer). */
+function authorize() {
+  SpreadsheetApp.getActiveSpreadsheet();
+  UrlFetchApp.getRequest('https://script.google.com/');
+  Logger.log('Permissions approved.');
 }
