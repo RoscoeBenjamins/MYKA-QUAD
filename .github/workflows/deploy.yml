@@ -22,10 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: API tests (Code.gs in a fake Apps Script runtime)
+      - name: API tests (Code.gs in a fake Apps Script runtime, incl. 2FA + email)
         run: node backend/test/api.test.js
-      - name: Auto-deploy tests
-        run: node backend/test/deploy.test.js
 
   build:
     needs: test
@@ -50,18 +48,13 @@ jobs:
         working-directory: source
         run: |
           pnpm exec parcel build index.html --dist-dir dist --no-source-maps
-          mkdir -p ../_site/api
+          mkdir -p ../_site
           pnpm exec html-inline dist/index.html > ../_site/index.html
-      - name: Add config and the tested API release
-        env:
-          MSG: ${{ github.event.head_commit.message }}
+      - name: Add config
         run: |
           cp config.js _site/
           touch _site/.nojekyll
-          cp backend/Code.gs _site/api/Code.txt
-          cp backend/appsscript.json _site/api/appsscript.json
-          node -e "const fs=require('fs');fs.writeFileSync('_site/api/release.json',JSON.stringify({sha:process.env.GITHUB_SHA,tests:'passed',message:(process.env.MSG||'').split('\n')[0],codeLength:fs.readFileSync('backend/Code.gs','utf8').length,builtAt:new Date().toISOString()}))"
-          ls -la _site _site/api
+          ls -la _site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
