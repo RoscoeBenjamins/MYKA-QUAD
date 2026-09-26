@@ -6,7 +6,7 @@ export type Role = 'admin' | 'manager' | 'staff' | 'viewer'
 
 export interface User {
   id: string; username: string; name: string; email: string; role: Role; modules: Module[]
-  active: string; mustChange: string; createdAt: string; lastLogin: string
+  active: string; mustChange: string; createdAt: string; lastLogin: string; twoFactor?: 'on' | 'off'
 }
 
 export interface Settings {
@@ -14,6 +14,7 @@ export interface Settings {
   bankName: string; bankAccount: string; currency: string; vatRate: string; defaultVatStatus: string
   invPrefix: string; invYear: string; invNext: string; rctPrefix: string; rctYear: string; rctNext: string
   purPrefix: string; purNext: string; expPrefix: string; expNext: string; paymentTermsDays: string
+  twoFactorPolicy: string; emailFrom: string; emailReplyTo: string; emailSenderName: string
   [k: string]: string
 }
 
@@ -33,6 +34,7 @@ export interface Invoice {
   invoiceNo: string; date: string; customerId: string; customerName: string; vatApplied: string
   subtotal: number; vat: number; total: number; paidAtInvoice: number; payMethod: string; dueDate: string
   nextStep: string; status: string; notes: string; createdBy: string; createdAt: string; isDemo: string
+  emailedAt?: string; emailedTo?: string
 }
 export interface InvoiceLine {
   invoiceNo: string; date: string; customerName: string; productCode: string; productName: string; unit: string
@@ -41,6 +43,7 @@ export interface InvoiceLine {
 export interface Receipt {
   receiptNo: string; date: string; customerName: string; invoiceNo: string; amount: number; method: string
   receivedBy: string; notes: string; status: string; createdBy: string; createdAt: string; isDemo: string
+  emailedAt?: string; emailedTo?: string
 }
 export interface Purchase {
   purchaseNo: string; date: string; supplier: string; productCode: string; productName: string; qty: number
@@ -70,3 +73,8 @@ export const MODULE_LABELS: Record<Module, string> = {
 }
 
 export const PAY_METHODS = ['Cash', 'MoMo', 'Bank Transfer', 'Cheque'] as const
+
+export type LoginResult =
+  | { token: string; user: User; recoveryCodes?: string[]; recoveryLeft?: number; mfa?: undefined }
+  | { mfa: 'verify'; challenge: string }
+  | { mfa: 'enroll'; challenge: string; secret: string; otpauth: string }

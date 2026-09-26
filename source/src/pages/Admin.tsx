@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { UserPlus, Loader2, KeyRound, Trash2 } from 'lucide-react'
+import { UserPlus, Loader2, KeyRound, Trash2, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TABS = [['users', 'Users & access'], ['settings', 'Company settings'], ['audit', 'Audit log'], ['demo', 'Demo data'], ['connection', 'Connection']] as const
@@ -60,8 +60,18 @@ function Users() {
           { key: 'role', label: 'Role', render: u => <Tag tone={u.role === 'admin' ? 'PAID' : undefined}>{u.role}</Tag> },
           { key: 'modules', label: 'Access', className: 'max-w-[360px]', render: u => u.role === 'admin' ? <span className="text-xs">Everything</span> : <div className="flex flex-wrap gap-1">{u.modules.map(m => <Tag key={m}>{MODULE_LABELS[m]?.split(' (')[0] || m}</Tag>)}</div> },
           { key: 'active', label: 'Status', render: u => u.active === 'Y' ? (u.mustChange === 'Y' ? <Tag tone="PARTIAL">Must set password</Tag> : <Tag tone="ACTIVE">Active</Tag>) : <Tag tone="VOID">Disabled</Tag> },
+          { key: 'twoFactor', label: '2-step', render: u => u.twoFactor === 'on' ? <Tag tone="ACTIVE">On</Tag> : <Tag tone="PARTIAL">Not set up</Tag> },
           { key: 'lastLogin', label: 'Last sign-in', render: u => u.lastLogin ? fmtDate(u.lastLogin.slice(0, 10)) : '—' },
-          { key: 'act', label: '', render: u => <Button size="sm" variant="ghost" onClick={e => { e.stopPropagation(); setReset(u) }}><KeyRound className="h-3.5 w-3.5 mr-1" />Reset password</Button> },
+          { key: 'act', label: '', render: u => (
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" onClick={e => { e.stopPropagation(); setReset(u) }}><KeyRound className="h-3.5 w-3.5 mr-1" />Reset password</Button>
+              {u.twoFactor === 'on' && <Button size="sm" variant="ghost" onClick={async e => {
+                e.stopPropagation()
+                if (!confirm(`Reset 2-step verification for ${u.username}? They'll be signed out and must scan a new QR code at next sign-in.`)) return
+                try { await api('reset2fa', { id: u.id }); toast.success(`2-step verification reset for ${u.username}`); load() } catch (x) { toast.error((x as Error).message) }
+              }}><Smartphone className="h-3.5 w-3.5 mr-1" />Reset 2-step</Button>}
+            </div>
+          ) },
         ]} />
       )}
       <UserDialog open={edit !== undefined} initial={edit} me={me!} onClose={() => setEdit(undefined)} onSaved={load} />
@@ -166,6 +176,9 @@ const SETTING_FIELDS: [keyof Settings, string, string?][] = [
   ['invPrefix', 'Invoice prefix'], ['invYear', 'Invoice year'], ['invNext', 'Next invoice number', 'Only move forward — never reuse numbers'],
   ['rctPrefix', 'Receipt prefix'], ['rctYear', 'Receipt year'], ['rctNext', 'Next receipt number'],
   ['purPrefix', 'Purchase prefix'], ['purNext', 'Next purchase number'], ['expPrefix', 'Expense prefix'], ['expNext', 'Next expense number'],
+  ['emailFrom', 'Send emails from', 'Must be added in Gmail → Settings → Accounts → "Send mail as" first, otherwise Gmail uses fafale17@gmail.com'],
+  ['emailSenderName', 'Sender name on emails'], ['emailReplyTo', 'Reply-To address'],
+  ['twoFactorPolicy', '2-step verification', 'Who must use Google / Microsoft Authenticator to sign in'],
 ]
 
 function SettingsTab() {
@@ -178,6 +191,7 @@ function SettingsTab() {
         {SETTING_FIELDS.map(([k, l, h]) => (
           <Field key={k as string} label={l} hint={h}>
             {k === 'defaultVatStatus' ? <NativeSelect value={f[k]} onChange={e => setF({ ...f, [k]: e.target.value })}><option>Non-VAT</option><option>VAT</option></NativeSelect>
+              : k === 'twoFactorPolicy' ? <NativeSelect value={f[k] || 'all'} onChange={e => setF({ ...f, [k]: e.target.value })}><option value="all">Required for everyone</option><option value="admins">Required for admins, optional for others</option><option value="optional">Optional</option></NativeSelect>
               : <TextInput value={f[k] || ''} onChange={e => setF({ ...f, [k]: e.target.value })} />}
           </Field>
         ))}

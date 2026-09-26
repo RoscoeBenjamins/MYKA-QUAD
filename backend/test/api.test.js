@@ -1,21 +1,69 @@
 const assert = require('assert');
+const crypto = require('crypto');
+const vm = require('vm');
 const { makeContext } = require('./gas-harness');
-const ctx = makeContext();
+const sent = [];
+const UrlFetchApp = { fetch(url, opt) { sent.push({ url, opt }); return { getResponseCode: () => 200, getContentText: () => '{"id":"msg1"}' }; } };
+const ScriptApp = { getOAuthToken: () => 'tok' };
+const ctx = makeContext({ UrlFetchApp, ScriptApp });
+vm.runInContext('Date.__off = 0; (function(){ var n = Date.now; Date.now = function(){ return n() + Date.__off; }; })();', ctx);
+const advance = (sec) => vm.runInContext('Date.__off += ' + sec * 1000, ctx);
+const offset = () => vm.runInContext('Date.__off', ctx);
+// independent RFC 6238 implementation (not the one under test)
+function b32(s) { const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = ''; for (const c of s) bits += A.indexOf(c).toString(2).padStart(5, '0'); const out = []; for (let i = 0; i + 8 <= bits.length; i += 8) out.push(parseInt(bits.slice(i, i + 8), 2)); return Buffer.from(out); }
+function totp(secret, t = Date.now() + offset()) { const step = Math.floor(t / 30000); const m = Buffer.alloc(8); m.writeBigUInt64BE(BigInt(step)); const h = crypto.createHmac('sha1', b32(secret)).update(m).digest(); const o = h[19] & 15; return String(((h.readUInt32BE(o) & 0x7fffffff) % 1e6)).padStart(6, '0'); }
 function call(action, payload, token) {
   const r = JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ action, payload, token }) } }).getContent());
   return r;
 }
 function ok(action, payload, token) { const r = call(action, payload, token); if (!r.ok) throw new Error(action + ': ' + r.error); return r.data; }
 function tb(journal) { let d = 0, c = 0; journal.forEach(j => { d += j.debit; c += j.credit; }); return [Math.round(d * 100) / 100, Math.round(c * 100) / 100]; }
+const secrets = {};
+function signIn(username, password) {
+  const r = ok('login', { username, password });
+  if (!r.mfa) return r;
+  if (r.mfa === 'enroll') {
+    assert.match(r.otpauth, /^otpauth:\/\/totp\/Myka%20Quad%3A/);
+    assert.equal(call('verify2fa', { challenge: r.challenge, code: '000000' }).ok, false);
+    secrets[username] = r.secret;
+    const s = ok('verify2fa', { challenge: r.challenge, code: totp(r.secret) });
+    assert.equal(s.recoveryCodes.length, 8);
+    s.enrolled = true;
+    advance(31);
+    return s;
+  }
+  const s = ok('verify2fa', { challenge: r.challenge, code: totp(secrets[username]) });
+  advance(31);
+  return s;
+}
 
-// login + forced change
+// RFC 6238 test vector (SHA1, T=59s -> 94287082)
+assert.equal(ctx.totpAt_('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 1), '287082');
+
+// login + forced 2FA enrolment + forced password change
 assert.equal(call('login', { username: 'admin', password: 'wrong' }).ok, false);
-let s = ok('login', { username: 'admin', password: 'TempPass123' });
+let s = signIn('admin', 'TempPass123');
+assert.ok(s.enrolled);
+const recovery = s.recoveryCodes;
 assert.equal(s.user.mustChange, 'Y');
 assert.match(call('saveCustomer', { name: 'X' }, s.token).error, /change your temporary/);
 ok('changePassword', { current: 'TempPass123', next: 'NewPass2026' }, s.token);
 const T = s.token;
-
+// second login needs a code; same code can't be replayed
+let ch = ok('login', { username: 'admin', password: 'NewPass2026' });
+assert.equal(ch.mfa, 'verify');
+const code = totp(secrets.admin);
+ok('verify2fa', { challenge: ch.challenge, code });
+ch = ok('login', { username: 'admin', password: 'NewPass2026' });
+assert.equal(call('verify2fa', { challenge: ch.challenge, code }).ok, false, 'replay rejected');
+// recovery code works once (any case / without dash)
+ok('verify2fa', { challenge: ch.challenge, code: recovery[0].replace('-', '').toLowerCase() });
+ch = ok('login', { username: 'admin', password: 'NewPass2026' });
+assert.equal(call('verify2fa', { challenge: ch.challenge, code: recovery[0] }).ok, false, 'recovery code single-use');
+// 5 wrong codes kill the challenge
+for (let i = 0; i < 5; i++) call('verify2fa', { challenge: ch.challenge, code: '123456' });
+assert.match(call('verify2fa', { challenge: ch.challenge, code: totp(secrets.admin) }).error, /Too many|expired/);
+advance(31);
 let b = ok('bootstrap', {}, T);
 assert.equal(b.products.length, 7);
 assert.equal(b.accounts.length, 13);
@@ -54,7 +102,7 @@ b = ok('bootstrap', {}, T); [d, cr] = tb(b.journal); assert.equal(d, cr);
 
 // users & permissions
 const u = ok('saveUser', { username: 'ama', name: 'Ama', role: 'staff', modules: ['sales', 'customers'], password: 'StaffPass1' }, T).user;
-let s2 = ok('login', { username: 'ama', password: 'StaffPass1' });
+let s2 = signIn('ama', 'StaffPass1');
 ok('changePassword', { current: 'StaffPass1', next: 'StaffPass2' }, s2.token);
 const b2 = ok('bootstrap', {}, s2.token);
 assert.ok(b2.invoices && !b2.journal && !b2.users, 'module filtering');
@@ -75,3 +123,46 @@ assert.equal(b.invoices.length, 2); assert.equal(b.customers.length, 1);
 [d, cr] = tb(b.journal); assert.equal(d, cr);
 assert.equal(b.settings.invNext, '1059');
 console.log('ALL API TESTS PASSED', { demo, journalLines: b.journal.length });
+
+// ---- 2FA admin + policy ----
+const users = ok('listUsers', {}, T).users;
+assert.equal(users.find(x => x.username === 'admin').twoFactor, 'on');
+const kofi = ok('saveUser', { username: 'kofi', role: 'staff', modules: ['sales'], password: 'KofiPass1' }, T).user;
+const k1 = signIn('kofi', 'KofiPass1');
+ok('reset2fa', { id: kofi.id }, T);
+assert.equal(call('bootstrap', {}, k1.token).ok, false, 'reset revokes sessions');
+const k2 = ok('login', { username: 'kofi', password: 'KofiPass1' });
+assert.equal(k2.mfa, 'enroll', 're-enrol after reset');
+// optional policy: sessions without 2FA allowed for users who have not enabled it
+ok('saveSettings', { twoFactorPolicy: 'optional' }, T);
+const k3 = ok('login', { username: 'kofi', password: 'KofiPass1' });
+assert.ok(k3.token && !k3.mfa);
+ok('saveSettings', { twoFactorPolicy: 'all' }, T);
+assert.match(call('bootstrap', {}, k3.token).error, /2-step/, 'policy tightening kicks non-2FA sessions');
+// regenerate recovery codes needs a fresh code
+assert.equal(call('regenerateRecovery', { code: '000000' }, T).ok, false);
+assert.equal(ok('regenerateRecovery', { code: totp(secrets.admin) }, T).recoveryCodes.length, 8);
+advance(31);
+
+// ---- email ----
+const pdf = Buffer.from('%PDF-1.3 fake pdf content '.repeat(10)).toString('base64');
+assert.match(call('emailDocument', { kind: 'invoice', no: inv.invoiceNo, to: 'not-an-email', pdfBase64: pdf }, T).error, /not a valid/);
+assert.match(call('emailDocument', { kind: 'invoice', no: inv.invoiceNo, to: 'a@b.com', pdfBase64: '' }, T).error, /PDF/);
+sent.length = 0;
+const em = ok('emailDocument', { kind: 'invoice', no: inv.invoiceNo, to: 'hallmark@example.com', cc: 'roscoe@example.com', message: 'Hello Ama — attached.', pdfBase64: 'data:application/pdf;base64,' + pdf }, T);
+assert.equal(em.emailedTo, 'hallmark@example.com, roscoe@example.com');
+assert.equal(sent.length, 1);
+assert.match(sent[0].url, /gmail\/v1\/users\/me\/messages\/send/);
+const raw = Buffer.from(JSON.parse(sent[0].opt.payload).raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+assert.match(raw, /^From: =\?UTF-8\?B\?.+\?= <mykaquadent@gmail\.com>/m);
+assert.match(raw, /^Reply-To: mykaquadent@gmail\.com/m);
+assert.match(raw, /^Cc: roscoe@example\.com/m);
+assert.match(raw, /filename="INV-2026-1057\.pdf"/);
+const subj = /^Subject: =\?UTF-8\?B\?(.+)\?=/m.exec(raw)[1];
+assert.equal(Buffer.from(subj, 'base64').toString(), 'Invoice INV-2026-1057 from MYKA QUAD LIMITED');
+assert.ok(raw.includes(pdf.slice(0, 60)));
+const bb = ok('bootstrap', {}, T);
+assert.ok(bb.invoices.find(i => i.invoiceNo === inv.invoiceNo).emailedAt);
+ok('emailDocument', { kind: 'receipt', no: r.receiptNo, to: 'hallmark@example.com', pdfBase64: pdf }, T);
+assert.match(call('emailDocument', { kind: 'receipt', no: r.receiptNo, to: 'a@b.com', pdfBase64: pdf }, s2.token).error || '', /access|disabled|sign/i);
+console.log('2FA + EMAIL TESTS PASSED');

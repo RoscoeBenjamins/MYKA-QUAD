@@ -7,10 +7,12 @@ import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { Field, TextInput } from '@/components/kit'
+import { MfaStep, RecoveryCodesView, SecurityDialog } from '@/components/Security'
+import type { LoginResult } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, ReceiptText, ShoppingCart, Users, Package, Truck, BookOpen, TrendingUp,
-  LineChart, ShieldCheck, Settings2, LogOut, Menu, X, Moon, Sun, RefreshCw, Loader2,
+  LineChart, ShieldCheck, Settings2, LogOut, Menu, X, Moon, Sun, RefreshCw, Loader2, Lock,
 } from 'lucide-react'
 import Dashboard from '@/pages/Dashboard'
 import Invoices from '@/pages/Invoices'
@@ -53,6 +55,7 @@ function Shell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [dark, setDark] = useTheme()
   const [refreshing, setRefreshing] = useState(false)
+  const [secOpen, setSecOpen] = useState(false)
   const items = NAV.filter(n => can(n.mod))
   const groups = [...new Set(items.map(i => i.group))]
   useEffect(() => setOpen(false), [route])
@@ -93,6 +96,7 @@ function Shell({ children }: { children: ReactNode }) {
             <button onClick={async () => { setRefreshing(true); await reload(); setRefreshing(false); toast.success('Data refreshed') }} className="p-1.5 rounded hover:bg-white/10" title="Refresh data">
               <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
             </button>
+            <button onClick={() => setSecOpen(true)} className="p-1.5 rounded hover:bg-white/10" title="Account security"><Lock className="h-4 w-4" /></button>
             <button onClick={logout} className="ml-auto flex items-center gap-1 px-2 py-1.5 rounded hover:bg-white/10"><LogOut className="h-4 w-4" /> Sign out</button>
           </div>
         </div>
@@ -106,6 +110,7 @@ function Shell({ children }: { children: ReactNode }) {
         </header>
         <main className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px]">{children}</main>
       </div>
+      <SecurityDialog open={secOpen} onClose={() => setSecOpen(false)} />
     </div>
   )
 }
@@ -159,11 +164,13 @@ function Login() {
   const { login, error } = useApp()
   const [u, setU] = useState(''); const [p, setP] = useState(''); const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(error)
+  const [pending, setPending] = useState<Extract<LoginResult, { mfa: 'verify' | 'enroll' }> | null>(null)
+  if (pending) return <AuthFrame><MfaStep pending={pending} onCancel={() => { setPending(null); setP('') }} /></AuthFrame>
   return (
     <AuthFrame>
       <form className="w-full max-w-sm" onSubmit={async e => {
         e.preventDefault(); setBusy(true); setErr('')
-        try { await login(u, p) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+        try { const r = await login(u, p); if (r.mfa) setPending(r) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
       }}>
         <img src={LOGO} alt="Myka" className="h-10 mb-6 lg:hidden" />
         <h2 className="text-2xl font-extrabold">Sign in</h2>
@@ -228,13 +235,14 @@ function ChangePassword() {
 }
 
 function Gate() {
-  const { data, loading, user, error } = useApp()
+  const { data, loading, user, error, recoveryCodes, clearRecovery } = useApp()
   if (!getApiUrl()) return <Setup />
   if (loading) return <div className="min-h-screen grid place-items-center text-muted-foreground"><div className="flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Loading Myka Quad…</div></div>
   if (!data || !user) {
     if (error && !error.toLowerCase().includes('sign')) return <div className="min-h-screen grid place-items-center p-6 text-center"><div><p className="text-bad mb-4">{error}</p><Button onClick={() => location.reload()}>Try again</Button></div></div>
     return <Login />
   }
+  if (recoveryCodes) return <AuthFrame><RecoveryCodesView codes={recoveryCodes} onDone={clearRecovery} /></AuthFrame>
   if (user.mustChange === 'Y') return <ChangePassword />
   return <Shell><Router /></Shell>
 }

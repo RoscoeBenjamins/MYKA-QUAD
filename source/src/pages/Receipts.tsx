@@ -5,7 +5,7 @@ import { invoiceStates } from '@/lib/analytics'
 import { fmtDate, money, num, todayISO } from '@/lib/fmt'
 import { PAY_METHODS } from '@/lib/types'
 import { PageHeader, Panel, DataTable, Tag, Field, NativeSelect, TextInput, Empty } from '@/components/kit'
-import { ReceiptDoc, DocActions } from '@/components/Documents'
+import { ReceiptDoc, DocActions, EmailDocButton } from '@/components/Documents'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
@@ -102,6 +102,7 @@ function ViewReceipt({ no }: { no: string }) {
   const [voidOpen, setVoidOpen] = useState(false); const [busy, setBusy] = useState(false)
   if (!r) return <Empty title="Receipt not found" />
   const inv = (d.invoices || []).find(i => i.invoiceNo === r.invoiceNo)
+  const cust = (d.customers || []).find(c => c.name === r.customerName)
   // balance right after this receipt (receipts on or before it, in number order)
   const after = inv ? Math.max(0, inv.total - inv.paidAtInvoice - (d.receipts || []).filter(x => x.invoiceNo === r.invoiceNo && x.status !== 'VOID' && (x.date < r.date || (x.date === r.date && x.receiptNo <= r.receiptNo))).reduce((a, x) => a + x.amount, 0)) : undefined
   return (
@@ -110,9 +111,12 @@ function ViewReceipt({ no }: { no: string }) {
         actions={<>
           <Button variant="ghost" onClick={() => go('/receipts')}><ArrowLeft className="h-4 w-4 mr-1" />Back</Button>
           <DocActions targetId="rct-print" filename={`${r.receiptNo}.pdf`} />
+          {canWrite && r.status !== 'VOID' && <EmailDocButton kind="receipt" no={r.receiptNo} targetId="rct-print" defaultTo={cust?.email || ''}
+            customerName={cust?.contact || r.customerName} summary={`${money(r.amount)} against ${r.invoiceNo}`} emailedAt={r.emailedAt} emailedTo={r.emailedTo} />}
           <Button variant="outline" onClick={() => go('/invoices/' + encodeURIComponent(r.invoiceNo))}>View invoice</Button>
           {canWrite && (user?.role === 'admin' || user?.role === 'manager') && r.status !== 'VOID' && <Button variant="outline" className="text-bad" onClick={() => setVoidOpen(true)}><Ban className="h-4 w-4 mr-1.5" />Void</Button>}
         </>} />
+      {r.emailedAt && <div className="text-sm border rounded-md bg-card px-4 py-3 mb-4 no-print">✉ Emailed {new Date(r.emailedAt).toLocaleString('en-GB')} to <b>{r.emailedTo}</b></div>}
       <div id="rct-print" className="print-area overflow-x-auto"><ReceiptDoc r={r} s={d.settings} inv={inv} outstandingAfter={r.status === 'VOID' ? undefined : after} /></div>
       <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
         <DialogContent>

@@ -1,7 +1,10 @@
 // Local stand-in for the deployed Apps Script web app: POST / -> doPost
 const http = require('http');
 const { makeContext } = require('./gas-harness');
-const ctx = makeContext();
+const ctx = makeContext({
+  UrlFetchApp: { fetch(url, opt) { console.log('[mock gmail] send', url, (opt.payload || '').length, 'bytes'); return { getResponseCode: () => 200, getContentText: () => '{"id":"mock"}' }; } },
+  ScriptApp: { getOAuthToken: () => 'mock' },
+});
 const port = process.env.PORT || 8787;
 http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');

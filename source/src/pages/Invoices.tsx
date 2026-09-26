@@ -5,7 +5,7 @@ import { invoiceStates, addDaysISO } from '@/lib/analytics'
 import { fmtDate, money, num, todayISO } from '@/lib/fmt'
 import { PAY_METHODS, type Customer } from '@/lib/types'
 import { PageHeader, Panel, DataTable, Tag, Field, NativeSelect, TextInput, Segmented, Empty } from '@/components/kit'
-import { InvoiceDoc, DocActions } from '@/components/Documents'
+import { InvoiceDoc, DocActions, EmailDocButton } from '@/components/Documents'
 import { CustomerDialog } from '@/pages/MasterData'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -48,7 +48,7 @@ function InvoiceList() {
           { key: 'received', label: 'Paid', align: 'right', render: r => num(r.paidAtInvoice + r.received, 2), csv: r => r.paidAtInvoice + r.received },
           { key: 'outstanding', label: 'Outstanding', align: 'right', render: r => <span className={r.outstanding > 0 ? 'font-semibold' : ''}>{num(r.outstanding, 2)}</span> },
           { key: 'dueDate', label: 'Due', render: r => <span className={r.daysOverdue > 0 ? 'text-bad font-medium' : ''}>{fmtDate(r.dueDate)}</span> },
-          { key: 'payStatus', label: 'Status', render: r => <span className="flex gap-1"><Tag>{r.payStatus}</Tag>{r.isDemo === 'Y' && <Tag tone="DEMO">DEMO</Tag>}</span> },
+          { key: 'payStatus', label: 'Status', render: r => <span className="flex gap-1"><Tag>{r.payStatus}</Tag>{r.emailedAt && <Tag tone="ACTIVE">Emailed</Tag>}{r.isDemo === 'Y' && <Tag tone="DEMO">DEMO</Tag>}</span> },
         ]}
         empty="No invoices yet." />
     </div>
@@ -210,12 +210,16 @@ function ViewInvoice({ no }: { no: string }) {
         actions={<>
           <Button variant="ghost" onClick={() => go('/invoices')}><ArrowLeft className="h-4 w-4 mr-1" />Back</Button>
           <DocActions targetId="inv-print" filename={`${state.invoiceNo}.pdf`} />
+          {canWrite && state.status !== 'VOID' && <EmailDocButton kind="invoice" no={state.invoiceNo} targetId="inv-print" defaultTo={customer?.email || ''}
+            customerName={customer?.contact || state.customerName} summary={`${money(state.total)}, due ${fmtDate(state.dueDate)}`}
+            emailedAt={state.emailedAt} emailedTo={state.emailedTo} />}
           {canWrite && state.outstanding > 0 && <Button variant="outline" onClick={() => go('/receipts/new?inv=' + encodeURIComponent(no))}><ReceiptText className="h-4 w-4 mr-1.5" />Record payment</Button>}
           {canVoid && pays.every(p => p.status === 'VOID') && <Button variant="outline" className="text-bad" onClick={() => setVoidOpen(true)}><Ban className="h-4 w-4 mr-1.5" />Void</Button>}
         </>} />
       <div className="grid 2xl:grid-cols-[auto_1fr] gap-6 items-start">
         <div id="inv-print" className="print-area overflow-x-auto"><InvoiceDoc inv={state} lines={lines} s={d.settings} customer={customer} state={state} /></div>
         <div className="space-y-4 no-print">
+          {state.emailedAt && <div className="text-sm border rounded-md bg-card px-4 py-3">✉ Emailed {new Date(state.emailedAt).toLocaleString('en-GB')} to <b>{state.emailedTo}</b></div>}
           <Panel title="Payments">
             {state.paidAtInvoice > 0 && <div className="text-sm border-b pb-2 mb-2">Paid at invoicing · {state.payMethod} · <b>{money(state.paidAtInvoice)}</b></div>}
             {pays.length ? pays.map(p => (

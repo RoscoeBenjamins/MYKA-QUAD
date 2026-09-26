@@ -44,8 +44,11 @@ function makeContext(extra = {}) {
     console,
     SpreadsheetApp: { openById: () => ss, getActiveSpreadsheet: () => ss },
     Utilities: {
-      DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
-      computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(s, 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
+      DigestAlgorithm: { SHA_256: 'sha256', SHA_1: 'sha1' }, Charset: { UTF_8: 'utf8' }, MacAlgorithm: { HMAC_SHA_1: 'sha1' },
+      computeDigest: (alg, s) => Array.from(crypto.createHash(alg).update(String(s), 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
+      computeHmacSignature: (alg, value, key) => Array.from(crypto.createHmac(alg, Buffer.from(key.map(b => b & 255))).update(Buffer.from(value.map(b => b & 255))).digest()).map(b => (b > 127 ? b - 256 : b)),
+      base64Encode: (s) => Buffer.from(s, 'utf8').toString('base64'),
+      base64EncodeWebSafe: (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
       getUuid: () => crypto.randomUUID(),
       formatDate: (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); },
     },

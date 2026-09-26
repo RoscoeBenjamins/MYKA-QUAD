@@ -20,10 +20,10 @@
 // sheet (Extensions > Apps Script) it falls back to the active spreadsheet.
 var DB_ID = '__DB_ID__';
 var ADMIN_TEMP_PASSWORD = '__ADMIN_TEMP__';   // only used to seed the first admin; forced change on first login
-var APP_VERSION = '1.1.0';
-// Auto-deploy: the live web app pulls tested releases published by GitHub Actions to the Pages site.
-var RELEASE_BASE = 'https://roscoebenjamins.github.io/MYKA-QUAD/api/';
-var DEPLOYMENT_ID = 'AKfycbxC1ys81n3ySkHk5fECrduOPJ3H-sUFDxO3l7sW8KVnLsI0HJ7Z7IWFeNq35O4BMSw';
+var APP_VERSION = '1.2.0';
+var TOTP_ISSUER = 'Myka Quad';
+var MFA_CHALLENGE_MIN = 10;
+var MAX_EMAIL_BYTES = 8 * 1024 * 1024;
 var SESSION_HOURS = 12;
 var HASH_ROUNDS = 300;
 
@@ -36,8 +36,9 @@ var PAY_ACCOUNTS = { 'Cash': '1000', 'MoMo': '1010', 'Bank Transfer': '1020', 'C
 var SCHEMA = {
   Settings:     [['key','s'],['value','s']],
   Users:        [['id','s'],['username','s'],['name','s'],['email','s'],['role','s'],['modules','s'],
-                 ['passHash','s'],['salt','s'],['active','s'],['mustChange','s'],['createdAt','s'],['lastLogin','s']],
-  Sessions:     [['token','s'],['userId','s'],['expires','s']],
+                 ['passHash','s'],['salt','s'],['active','s'],['mustChange','s'],['createdAt','s'],['lastLogin','s'],
+                 ['totpSecret','s'],['totpEnabled','s'],['totpLastStep','n'],['recoveryHashes','s']],
+  Sessions:     [['token','s'],['userId','s'],['expires','s'],['mfa','s']],
   Customers:    [['id','s'],['name','s'],['contact','s'],['phone','s'],['email','s'],['address','s'],['type','s'],
                  ['vatStatus','s'],['tin','s'],['openingBalance','n'],['notes','s'],['createdAt','s'],['isDemo','s']],
   Suppliers:    [['id','s'],['name','s'],['products','s'],['contact','s'],['phone','s'],['email','s'],['address','s'],
@@ -46,11 +47,13 @@ var SCHEMA = {
                  ['vat','s'],['reorderLevel','n'],['active','s'],['notes','s']],
   Invoices:     [['invoiceNo','s'],['date','s'],['customerId','s'],['customerName','s'],['vatApplied','s'],
                  ['subtotal','n'],['vat','n'],['total','n'],['paidAtInvoice','n'],['payMethod','s'],['dueDate','s'],
-                 ['nextStep','s'],['status','s'],['notes','s'],['createdBy','s'],['createdAt','s'],['isDemo','s']],
+                 ['nextStep','s'],['status','s'],['notes','s'],['createdBy','s'],['createdAt','s'],['isDemo','s'],
+                 ['emailedAt','s'],['emailedTo','s']],
   InvoiceLines: [['invoiceNo','s'],['date','s'],['customerName','s'],['productCode','s'],['productName','s'],
                  ['unit','s'],['qty','n'],['unitPrice','n'],['lineTotal','n'],['unitCost','n'],['isDemo','s']],
   Receipts:     [['receiptNo','s'],['date','s'],['customerName','s'],['invoiceNo','s'],['amount','n'],['method','s'],
-                 ['receivedBy','s'],['notes','s'],['status','s'],['createdBy','s'],['createdAt','s'],['isDemo','s']],
+                 ['receivedBy','s'],['notes','s'],['status','s'],['createdBy','s'],['createdAt','s'],['isDemo','s'],
+                 ['emailedAt','s'],['emailedTo','s']],
   Purchases:    [['purchaseNo','s'],['date','s'],['supplier','s'],['productCode','s'],['productName','s'],['qty','n'],
                  ['unitCost','n'],['total','n'],['method','s'],['notes','s'],['createdBy','s'],['createdAt','s'],['isDemo','s']],
   Expenses:     [['expenseNo','s'],['date','s'],['category','s'],['description','s'],['amount','n'],['method','s'],
@@ -67,7 +70,8 @@ var DEFAULT_SETTINGS = {
   bankName: 'Access Bank', bankAccount: '1020000010397', currency: 'GHS', vatRate: '0.03',
   defaultVatStatus: 'Non-VAT', invPrefix: 'INV', invYear: '2026', invNext: '1057',
   rctPrefix: 'RCT', rctYear: '2026', rctNext: '2019', purPrefix: 'PUR', purNext: '5001',
-  expPrefix: 'EXP', expNext: '7001', jeNext: '1', custNext: '1', paymentTermsDays: '14'
+  expPrefix: 'EXP', expNext: '7001', jeNext: '1', custNext: '1', paymentTermsDays: '14',
+  twoFactorPolicy: 'all', emailFrom: 'mykaquadent@gmail.com', emailReplyTo: 'mykaquadent@gmail.com', emailSenderName: 'MYKA QUAD LIMITED'
 };
 
 // =============================================================================
@@ -75,8 +79,7 @@ var DEFAULT_SETTINGS = {
 // =============================================================================
 function doGet(e) {
   var p = PropertiesService.getScriptProperties();
-  return json_({ ok: true, app: 'Myka Quad ERP API', version: APP_VERSION, release: p.getProperty('deployedSha') || '',
-                 deployedAt: p.getProperty('deployedAt') || '', time: new Date().toISOString() });
+  return json_({ ok: true, app: 'Myka Quad ERP API', version: APP_VERSION, time: new Date().toISOString() });
 }
 
 function doPost(e) {
@@ -111,13 +114,16 @@ var ACTIONS = {
   saveSettings:     ['admin', true],      listUsers:      ['admin', false],
   saveUser:         ['admin', true],      resetPassword:  ['admin', true],
   deleteUser:       ['admin', true],      loadDemo:       ['admin', true],
-  clearDemo:        ['admin', true],      auditLog:       ['admin', false]
+  clearDemo:        ['admin', true],      auditLog:       ['admin', false],
+  reset2fa:         ['admin', true],      regenerateRecovery: [null, false],
+  emailDocument:    ['sales', true]
 };
 
 function route_(action, p, token) {
   ensureSchema_();
   if (action === 'ping') return { pong: true };
   if (action === 'login') return login_(p.username, p.password);
+  if (action === 'verify2fa') return verify2fa_(p.challenge, p.code);
   var spec = ACTIONS[action];
   if (!spec) throw new Error('Unknown action: ' + action);
   var user = auth_(token);
@@ -153,9 +159,9 @@ var _schemaChecked = false;
 function ensureSchema_() {
   if (_schemaChecked) return;
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('schemaVersion') === '3') { _schemaChecked = true; return; }
+  if (props.getProperty('schemaVersion') === '4') { _schemaChecked = true; return; }
   setup();
-  props.setProperty('schemaVersion', '3');
+  props.setProperty('schemaVersion', '4');
   _schemaChecked = true;
 }
 
@@ -371,7 +377,8 @@ function hash_(password, salt) {
 function publicUser_(u) {
   return { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role,
            modules: u.role === 'admin' ? MODULES.slice() : (u.modules ? u.modules.split(',') : []),
-           active: u.active, mustChange: u.mustChange, createdAt: u.createdAt, lastLogin: u.lastLogin };
+           active: u.active, mustChange: u.mustChange, createdAt: u.createdAt, lastLogin: u.lastLogin,
+           twoFactor: u.totpEnabled === 'Y' ? 'on' : 'off' };
 }
 
 function login_(username, password) {
@@ -387,20 +394,150 @@ function login_(username, password) {
     throw new Error('Wrong username or password.');
   }
   cache.remove(failKey);
+  if (u.totpEnabled === 'Y') {
+    return { mfa: 'verify', challenge: newChallenge_({ userId: u.id, mode: 'verify' }) };
+  }
+  if (mfaRequired_(u)) {
+    var secret = newTotpSecret_();
+    return { mfa: 'enroll', challenge: newChallenge_({ userId: u.id, mode: 'enroll', secret: secret }),
+             secret: secret, otpauth: otpauthUri_(u.username, secret) };
+  }
+  return createSession_(u, false);
+}
+
+function createSession_(u, mfa) {
+  var cache = CacheService.getScriptCache();
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var token, expires;
   try {
-    var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
-    var expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
-    // drop this user's expired sessions
+    token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+    expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
     var now = new Date().toISOString();
     deleteWhere_('Sessions', function (s) { return s.expires < now; });
-    append_('Sessions', [{ token: token, userId: u.id, expires: expires }]);
+    append_('Sessions', [{ token: token, userId: u.id, expires: expires, mfa: mfa ? 'Y' : '' }]);
     u.lastLogin = now;
     update_('Users', u._row, u);
-    audit_(u.username, 'login', '');
+    audit_(u.username, 'login', mfa ? 'with 2-step verification' : '');
   } finally { lock.releaseLock(); }
-  cache.put('sess_' + token, JSON.stringify({ userId: u.id, expires: expires }), 21600);
+  cache.put('sess_' + token, JSON.stringify({ userId: u.id, expires: expires, mfa: mfa ? 'Y' : '' }), 21600);
   return { token: token, expires: expires, user: publicUser_(u) };
+}
+
+function mfaRequired_(u) {
+  var policy = settings_().twoFactorPolicy || 'all';
+  if (policy === 'all') return true;
+  if (policy === 'admins') return u.role === 'admin';
+  return false;
+}
+
+// ---- 2-step verification (TOTP, RFC 6238 — Google / Microsoft Authenticator) ----
+function newChallenge_(data) {
+  var id = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  data.tries = 0;
+  CacheService.getScriptCache().put('mfa_' + id, JSON.stringify(data), MFA_CHALLENGE_MIN * 60);
+  return id;
+}
+
+function verify2fa_(challenge, code) {
+  var cache = CacheService.getScriptCache();
+  var key = 'mfa_' + String(challenge || '');
+  var raw = cache.get(key);
+  if (!raw) throw new Error('This sign-in has expired. Please enter your password again.');
+  var ch = JSON.parse(raw);
+  if (ch.tries >= 5) { cache.remove(key); throw new Error('Too many wrong codes. Please sign in again.'); }
+  var u = find_('Users', 'id', ch.userId);
+  if (!u || u.active !== 'Y') throw new Error('Account disabled.');
+  code = String(code || '').replace(/\s/g, '');
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (ch.mode === 'enroll') {
+      var st = totpMatch_(ch.secret, code, 0);
+      if (st < 0) { ch.tries++; cache.put(key, JSON.stringify(ch), MFA_CHALLENGE_MIN * 60); throw new Error('That code did not match. Check the time on your phone and try the newest code.'); }
+      var codes = makeRecoveryCodes_();
+      u.totpSecret = ch.secret; u.totpEnabled = 'Y'; u.totpLastStep = st;
+      u.recoveryHashes = JSON.stringify(codes.map(function (c) { return hash_(c, 'rc:' + u.id); }));
+      update_('Users', u._row, u);
+      audit_(u.username, 'enable2fa', '');
+      cache.remove(key);
+      var out = createSession_(u, true);
+      out.recoveryCodes = codes;
+      return out;
+    }
+    var step = totpMatch_(u.totpSecret, code, Number(u.totpLastStep) || 0);
+    if (step >= 0) {
+      u.totpLastStep = step;
+      update_('Users', u._row, u);
+      cache.remove(key);
+      return createSession_(u, true);
+    }
+    // recovery code?
+    var norm = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (norm.length === 10) {
+      var hashes = JSON.parse(u.recoveryHashes || '[]');
+      var h = hash_(norm.slice(0, 5) + '-' + norm.slice(5), 'rc:' + u.id);
+      var idx = hashes.indexOf(h);
+      if (idx >= 0) {
+        hashes.splice(idx, 1);
+        u.recoveryHashes = JSON.stringify(hashes);
+        update_('Users', u._row, u);
+        audit_(u.username, 'recoveryCodeUsed', hashes.length + ' left');
+        cache.remove(key);
+        var res = createSession_(u, true);
+        res.recoveryLeft = hashes.length;
+        return res;
+      }
+    }
+    ch.tries++;
+    cache.put(key, JSON.stringify(ch), MFA_CHALLENGE_MIN * 60);
+    throw new Error('Wrong code. Use the newest 6-digit code from your authenticator app.');
+  } finally { lock.releaseLock(); }
+}
+
+var B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function newTotpSecret_() {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_1, Utilities.getUuid() + Utilities.getUuid() + Date.now() + Math.random());
+  var bits = '', out = '';
+  bytes.forEach(function (b) { var v = (b < 0 ? b + 256 : b).toString(2); bits += ('00000000' + v).slice(-8); });
+  for (var i = 0; i + 5 <= bits.length; i += 5) out += B32[parseInt(bits.substr(i, 5), 2)];
+  return out; // 32 chars = 160 bits
+}
+function base32Bytes_(s) {
+  s = String(s).toUpperCase().replace(/[^A-Z2-7]/g, '');
+  var bits = '', out = [];
+  for (var i = 0; i < s.length; i++) bits += ('00000' + B32.indexOf(s[i]).toString(2)).slice(-5);
+  for (var j = 0; j + 8 <= bits.length; j += 8) { var v = parseInt(bits.substr(j, 8), 2); out.push(v > 127 ? v - 256 : v); }
+  return out;
+}
+function totpAt_(secret, step) {
+  var msg = [], c = step;
+  for (var i = 7; i >= 0; i--) { var b = c % 256; msg[i] = b > 127 ? b - 256 : b; c = Math.floor(c / 256); }
+  var h = Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_1, msg, base32Bytes_(secret)).map(function (b) { return b < 0 ? b + 256 : b; });
+  var o = h[19] & 15;
+  var bin = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  return ('000000' + (bin % 1000000)).slice(-6);
+}
+/** Returns the matched time step, or -1. Accepts one step of clock drift; rejects replays. */
+function totpMatch_(secret, code, lastStep) {
+  if (!secret || !/^\d{6}$/.test(code)) return -1;
+  var now = Math.floor(Date.now() / 30000);
+  for (var d = -1; d <= 1; d++) {
+    var st = now + d;
+    if (st > lastStep && totpAt_(secret, st) === code) return st;
+  }
+  return -1;
+}
+function otpauthUri_(username, secret) {
+  var label = encodeURIComponent(TOTP_ISSUER + ':' + username);
+  return 'otpauth://totp/' + label + '?secret=' + secret + '&issuer=' + encodeURIComponent(TOTP_ISSUER) + '&algorithm=SHA1&digits=6&period=30';
+}
+function makeRecoveryCodes_() {
+  var a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', out = [];
+  for (var i = 0; i < 8; i++) {
+    var hex = Utilities.getUuid().replace(/-/g, ''), c = '';
+    for (var j = 0; j < 10; j++) c += a[parseInt(hex.substr(j * 3, 3), 16) % a.length];
+    out.push(c.slice(0, 5) + '-' + c.slice(5));
+  }
+  return out;
 }
 
 function auth_(token) {
@@ -410,11 +547,13 @@ function auth_(token) {
   if (hit) sess = JSON.parse(hit);
   else {
     var row = find_('Sessions', 'token', token);
-    if (row) sess = { userId: row.userId, expires: row.expires };
+    if (row) sess = { userId: row.userId, expires: row.expires, mfa: row.mfa };
   }
   if (!sess || sess.expires < new Date().toISOString()) throw new Error('AUTH: Your session has expired. Please sign in again.');
   var u = find_('Users', 'id', sess.userId);
   if (!u || u.active !== 'Y') throw new Error('AUTH: Account disabled.');
+  if (sess.mfa !== 'Y' && (u.totpEnabled === 'Y' || mfaRequired_(u)))
+    throw new Error('AUTH: Please sign in again with 2-step verification.');
   u._token = token;
   return u;
 }
@@ -771,7 +910,7 @@ HANDLERS.saveAccount = function (p, u) {
 // ---- admin ------------------------------------------------------------------------
 var SETTING_KEYS = ['companyName', 'address', 'email', 'phone', 'momo', 'bankName', 'bankAccount', 'currency', 'vatRate',
   'defaultVatStatus', 'invPrefix', 'invYear', 'invNext', 'rctPrefix', 'rctYear', 'rctNext', 'purPrefix', 'purNext',
-  'expPrefix', 'expNext', 'paymentTermsDays'];
+  'expPrefix', 'expNext', 'paymentTermsDays', 'twoFactorPolicy', 'emailFrom', 'emailReplyTo', 'emailSenderName'];
 HANDLERS.saveSettings = function (p, u) {
   SETTING_KEYS.forEach(function (k) { if (p[k] !== undefined) setSetting_(k, p[k]); });
   audit_(u.username, 'saveSettings', '');
@@ -906,79 +1045,114 @@ function bulkDeleteDemo_(name) {
 }
 
 // =============================================================================
-//  AUTO-DEPLOY (pull-based, no secrets)
-//  GitHub Actions runs the API tests on every push to main; only when they pass
-//  does it publish backend/Code.gs + appsscript.json + release.json to the Pages
-//  site under /api/. Every 5 minutes this script checks release.json and, if the
-//  release is new, replaces its own code, cuts a new version and points the
-//  EXISTING web-app deployment at it (same URL, config.js never changes).
-//  One-time: run installAutoUpdate() from the editor and approve the permissions.
+//  2-step verification admin / self-service
 // =============================================================================
-function installAutoUpdate() {
-  var p = PropertiesService.getScriptProperties();
-  // move private values out of the code so public releases can use placeholders
-  if (DB_ID.indexOf('__') !== 0) p.setProperty('DB_ID', DB_ID);
-  else if (!p.getProperty('DB_ID')) p.setProperty('DB_ID', SpreadsheetApp.getActiveSpreadsheet().getId());
-  if (ADMIN_TEMP_PASSWORD.indexOf('__') !== 0) p.setProperty('ADMIN_TEMP', ADMIN_TEMP_PASSWORD);
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'checkForUpdate') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('checkForUpdate').timeBased().everyMinutes(5).create();
-  var r;
-  try { r = checkForUpdate(); } catch (e) { r = 'Auto-update installed; first check: ' + e.message; }
-  Logger.log(r);
-  return r;
-}
+HANDLERS.reset2fa = function (p, u) {
+  var rec = find_('Users', 'id', p.id);
+  if (!rec) throw new Error('User not found.');
+  rec.totpSecret = ''; rec.totpEnabled = ''; rec.totpLastStep = 0; rec.recoveryHashes = '';
+  update_('Users', rec._row, rec);
+  revokeSessions_(rec.id);
+  audit_(u.username, 'reset2fa', rec.username);
+  return { ok: true };
+};
 
-function fetchText_(url) {
-  var r = UrlFetchApp.fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now(),
-    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } });
-  if (r.getResponseCode() !== 200) throw new Error('HTTP ' + r.getResponseCode() + ' for ' + url);
-  return r.getContentText();
-}
-
-function scriptApi_(method, path, body) {
-  var r = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + ScriptApp.getScriptId() + path, {
-    method: method, contentType: 'application/json', muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-    payload: body ? JSON.stringify(body) : undefined
-  });
-  var code = r.getResponseCode(), text = r.getContentText();
-  if (code >= 300) throw new Error('Apps Script API ' + method + ' ' + path + ' -> ' + code + ': ' + text.slice(0, 300));
-  return text ? JSON.parse(text) : {};
-}
-
-function checkForUpdate() {
-  var p = PropertiesService.getScriptProperties();
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return 'busy';
+HANDLERS.regenerateRecovery = function (p, u) {
+  if (u.totpEnabled !== 'Y') throw new Error('2-step verification is not set up on this account.');
+  if (totpMatch_(u.totpSecret, String(p.code || '').replace(/\s/g, ''), Number(u.totpLastStep) || 0) < 0)
+    throw new Error('Wrong code. Use the newest 6-digit code from your authenticator app.');
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
-    var rel = JSON.parse(fetchText_(RELEASE_BASE + 'release.json'));
-    if (!rel || !rel.sha || rel.tests !== 'passed') return 'no tested release';
-    if (p.getProperty('deployedSha') === rel.sha) return 'up to date ' + rel.sha.slice(0, 7);
-    var code = fetchText_(RELEASE_BASE + 'Code.txt');
-    var manifest = fetchText_(RELEASE_BASE + 'appsscript.json');
-    // safety checks before replacing ourselves
-    if (rel.codeLength && rel.codeLength !== code.length) throw new Error('Release file size mismatch — CDN still updating?');
-    if (code.indexOf('function doPost') < 0 || code.indexOf('function checkForUpdate') < 0)
-      throw new Error('Release is missing doPost/checkForUpdate — refusing to deploy.');
-    new Function(code);          // throws on syntax errors
-    JSON.parse(manifest);
-    scriptApi_('put', '/content', { files: [
-      { name: 'Code', type: 'SERVER_JS', source: code },
-      { name: 'appsscript', type: 'JSON', source: manifest }
-    ] });
-    var ver = scriptApi_('post', '/versions', { description: 'GitHub ' + rel.sha.slice(0, 7) + ' ' + (rel.message || '').slice(0, 60) });
-    scriptApi_('put', '/deployments/' + DEPLOYMENT_ID, { deploymentConfig: {
-      versionNumber: ver.versionNumber, manifestFileName: 'appsscript',
-      description: 'Auto-deploy v' + ver.versionNumber + ' (' + rel.sha.slice(0, 7) + ')' } });
-    p.setProperty('deployedSha', rel.sha);
-    p.setProperty('deployedAt', new Date().toISOString());
-    p.setProperty('deployedVersion', String(ver.versionNumber));
-    try { audit_('system', 'autoDeploy', 'v' + ver.versionNumber + ' ' + rel.sha.slice(0, 7) + ' ' + (rel.message || '')); } catch (e) { /* sheet busy */ }
-    return 'deployed v' + ver.versionNumber + ' (' + rel.sha.slice(0, 7) + ')';
-  } catch (err) {
-    p.setProperty('lastDeployError', new Date().toISOString() + ' ' + err.message);
-    throw err;
+    var codes = makeRecoveryCodes_();
+    u.totpLastStep = Math.floor(Date.now() / 30000);
+    u.recoveryHashes = JSON.stringify(codes.map(function (c) { return hash_(c, 'rc:' + u.id); }));
+    update_('Users', u._row, u);
+    audit_(u.username, 'regenerateRecovery', '');
+    return { recoveryCodes: codes };
   } finally { lock.releaseLock(); }
+};
+
+// =============================================================================
+//  Email invoices / receipts (Gmail API, gmail.send scope only)
+// =============================================================================
+function validEmails_(list, label) {
+  var arr = String(list || '').split(/[,;\s]+/).filter(function (x) { return x; });
+  arr.forEach(function (e) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error(label + ': "' + e + '" is not a valid email address.'); });
+  return arr;
+}
+function mimeWord_(s) { return '=?UTF-8?B?' + Utilities.base64Encode(s, Utilities.Charset.UTF_8) + '?='; }
+function wrap76_(b64) { return b64.replace(/(.{76})/g, '$1\r\n'); }
+function escHtml_(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+function sendGmail_(o) {
+  var boundary = 'myka_' + Utilities.getUuid().replace(/-/g, '');
+  var alt = 'alt_' + Utilities.getUuid().replace(/-/g, '');
+  var headers = [
+    'From: ' + mimeWord_(o.fromName) + ' <' + o.from + '>',
+    'To: ' + o.to.join(', ')
+  ];
+  if (o.cc.length) headers.push('Cc: ' + o.cc.join(', '));
+  if (o.replyTo) headers.push('Reply-To: ' + o.replyTo);
+  headers.push('Subject: ' + mimeWord_(o.subject), 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="' + boundary + '"');
+  var body = headers.join('\r\n') + '\r\n\r\n' +
+    '--' + boundary + '\r\nContent-Type: multipart/alternative; boundary="' + alt + '"\r\n\r\n' +
+    '--' + alt + '\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap76_(Utilities.base64Encode(o.text, Utilities.Charset.UTF_8)) + '\r\n' +
+    '--' + alt + '\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap76_(Utilities.base64Encode(o.html, Utilities.Charset.UTF_8)) + '\r\n' +
+    '--' + alt + '--\r\n' +
+    '--' + boundary + '\r\nContent-Type: application/pdf; name="' + o.filename + '"\r\nContent-Disposition: attachment; filename="' + o.filename + '"\r\nContent-Transfer-Encoding: base64\r\n\r\n' + wrap76_(o.pdfBase64) + '\r\n' +
+    '--' + boundary + '--';
+  var raw = Utilities.base64EncodeWebSafe(body, Utilities.Charset.UTF_8).replace(/=+$/, '');
+  var r = UrlFetchApp.fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({ raw: raw })
+  });
+  if (r.getResponseCode() >= 300) throw new Error('Gmail could not send the email (' + r.getResponseCode() + '): ' + r.getContentText().slice(0, 200));
+  return JSON.parse(r.getContentText()).id;
+}
+
+HANDLERS.emailDocument = function (p, u) {
+  var s = settings_();
+  var kind = p.kind === 'receipt' ? 'receipt' : 'invoice';
+  var doc = kind === 'invoice' ? find_('Invoices', 'invoiceNo', p.no) : find_('Receipts', 'receiptNo', p.no);
+  if (!doc) throw new Error('Document not found.');
+  var to = validEmails_(p.to, 'To');
+  if (!to.length) throw new Error('Enter at least one recipient email.');
+  var cc = validEmails_(p.cc, 'CC');
+  if (to.length + cc.length > 10) throw new Error('Up to 10 recipients per email.');
+  var pdf = String(p.pdfBase64 || '').replace(/^data:[^,]*,/, '').replace(/\s/g, '');
+  if (!/^[A-Za-z0-9+/]+=*$/.test(pdf) || pdf.length < 100) throw new Error('The PDF attachment is missing.');
+  if (pdf.length * 0.75 > MAX_EMAIL_BYTES) throw new Error('The PDF is too large to email.');
+  var no = kind === 'invoice' ? doc.invoiceNo : doc.receiptNo;
+  var subject = String(p.subject || '').trim() || ((kind === 'invoice' ? 'Invoice ' : 'Receipt ') + no + ' from ' + s.companyName);
+  var msg = String(p.message || '').trim();
+  var cur = s.currency || 'GHS';
+  var money = function (n) { return cur + ' ' + Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+  var facts = kind === 'invoice'
+    ? [['Invoice', no], ['Date', doc.date], ['Amount', money(doc.total)], ['Due date', doc.dueDate]]
+    : [['Receipt', no], ['Date', doc.date], ['Amount received', money(doc.amount)], ['For invoice', doc.invoiceNo]];
+  var pay = 'MoMo ' + s.momo + ' · ' + s.bankName + ' ' + s.bankAccount;
+  var text = (msg ? msg + '\n\n' : '') + facts.map(function (f) { return f[0] + ': ' + f[1]; }).join('\n') +
+    (kind === 'invoice' ? '\n\nPayment: ' + pay + '\nPlease quote ' + no + ' as the reference.' : '\n\nThank you for your payment.') +
+    '\n\nThe ' + kind + ' is attached as a PDF.\n\n' + s.companyName + '\n' + s.address + '\n' + s.phone + ' · ' + s.email;
+  var html = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;max-width:560px">' +
+    (msg ? '<p>' + escHtml_(msg).replace(/\n/g, '<br>') + '</p>' : '') +
+    '<table style="border-collapse:collapse;margin:12px 0">' + facts.map(function (f) {
+      return '<tr><td style="padding:4px 16px 4px 0;color:#666">' + escHtml_(f[0]) + '</td><td style="padding:4px 0;font-weight:bold">' + escHtml_(f[1]) + '</td></tr>';
+    }).join('') + '</table>' +
+    (kind === 'invoice' ? '<p style="background:#f3f7f1;border-left:3px solid #0b5d0b;padding:8px 12px">Payment: ' + escHtml_(pay) + '<br>Please quote <b>' + escHtml_(no) + '</b> as the reference.</p>' : '<p>Thank you for your payment.</p>') +
+    '<p>The ' + kind + ' is attached as a PDF.</p>' +
+    '<p style="color:#666;font-size:12px;border-top:1px solid #ddd;padding-top:8px">' + escHtml_(s.companyName) + '<br>' + escHtml_(s.address) + '<br>' + escHtml_(s.phone) + ' · ' + escHtml_(s.email) + '</p></div>';
+  var id = sendGmail_({ from: s.emailFrom || s.email, fromName: s.emailSenderName || s.companyName, replyTo: s.emailReplyTo || '',
+    to: to, cc: cc, subject: subject, text: text, html: html, pdfBase64: pdf, filename: no + '.pdf' });
+  doc.emailedAt = new Date().toISOString();
+  doc.emailedTo = to.concat(cc).join(', ');
+  update_(kind === 'invoice' ? 'Invoices' : 'Receipts', doc._row, doc);
+  audit_(u.username, 'emailDocument', no + ' → ' + doc.emailedTo);
+  return { ok: true, id: id, emailedAt: doc.emailedAt, emailedTo: doc.emailedTo };
+};
+
+/** Run once from the editor after adding the Gmail permission, to approve it. */
+function authorizeEmail() {
+  Logger.log('Token ok: ' + !!ScriptApp.getOAuthToken() + ' — email sending is authorised.');
 }
