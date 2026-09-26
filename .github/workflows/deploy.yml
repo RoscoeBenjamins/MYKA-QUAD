@@ -24,6 +24,8 @@ jobs:
           node-version: 22
       - name: API tests (Code.gs in a fake Apps Script runtime, incl. 2FA + email)
         run: node backend/test/api.test.js
+      - name: Mailer tests (mykaquadent mailer in a fake Apps Script runtime)
+        run: node backend/test/mailer.test.js
 
   build:
     needs: test
