@@ -20,6 +20,10 @@
 // sheet (Extensions > Apps Script) it falls back to the active spreadsheet.
 var DB_ID = '__DB_ID__';
 var ADMIN_TEMP_PASSWORD = '__ADMIN_TEMP__';   // only used to seed the first admin; forced change on first login
+var APP_VERSION = '1.1.0';
+// Auto-deploy: the live web app pulls tested releases published by GitHub Actions to the Pages site.
+var RELEASE_BASE = 'https://roscoebenjamins.github.io/MYKA-QUAD/api/';
+var DEPLOYMENT_ID = 'AKfycbxC1ys81n3ySkHk5fECrduOPJ3H-sUFDxO3l7sW8KVnLsI0HJ7Z7IWFeNq35O4BMSw';
 var SESSION_HOURS = 12;
 var HASH_ROUNDS = 300;
 
@@ -70,7 +74,9 @@ var DEFAULT_SETTINGS = {
 //  HTTP entry points
 // =============================================================================
 function doGet(e) {
-  return json_({ ok: true, app: 'Myka Quad ERP API', time: new Date().toISOString() });
+  var p = PropertiesService.getScriptProperties();
+  return json_({ ok: true, app: 'Myka Quad ERP API', version: APP_VERSION, release: p.getProperty('deployedSha') || '',
+                 deployedAt: p.getProperty('deployedAt') || '', time: new Date().toISOString() });
 }
 
 function doPost(e) {
@@ -138,7 +144,8 @@ function hasModule_(user, mod) {
 var _ss = null, _cache = {};
 function ss_() {
   if (_ss) return _ss;
-  _ss = (DB_ID && DB_ID.indexOf('__') !== 0) ? SpreadsheetApp.openById(DB_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  var id = PropertiesService.getScriptProperties().getProperty('DB_ID') || DB_ID;
+  _ss = (id && id.indexOf('__') !== 0) ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
   return _ss;
 }
 
@@ -343,7 +350,7 @@ function seed_() {
     append_('Users', [{
       id: 'U-' + Utilities.getUuid().slice(0, 8), username: 'admin', name: 'Roscoe (Administrator)',
       email: 'fafale17@gmail.com', role: 'admin', modules: MODULES.join(','),
-      passHash: hash_(ADMIN_TEMP_PASSWORD, salt), salt: salt, active: 'Y', mustChange: 'Y',
+      passHash: hash_(PropertiesService.getScriptProperties().getProperty('ADMIN_TEMP') || ADMIN_TEMP_PASSWORD, salt), salt: salt, active: 'Y', mustChange: 'Y',
       createdAt: new Date().toISOString(), lastLogin: ''
     }]);
   }
@@ -896,4 +903,82 @@ function bulkDeleteDemo_(name) {
   if (keep.length) sh.getRange(2, 1, keep.length, hdr.length).setValues(keep.map(function (o) { return toRow_(name, o, hdr); }));
   delete _cache[name];
   return rows.length - keep.length;
+}
+
+// =============================================================================
+//  AUTO-DEPLOY (pull-based, no secrets)
+//  GitHub Actions runs the API tests on every push to main; only when they pass
+//  does it publish backend/Code.gs + appsscript.json + release.json to the Pages
+//  site under /api/. Every 5 minutes this script checks release.json and, if the
+//  release is new, replaces its own code, cuts a new version and points the
+//  EXISTING web-app deployment at it (same URL, config.js never changes).
+//  One-time: run installAutoUpdate() from the editor and approve the permissions.
+// =============================================================================
+function installAutoUpdate() {
+  var p = PropertiesService.getScriptProperties();
+  // move private values out of the code so public releases can use placeholders
+  if (DB_ID.indexOf('__') !== 0) p.setProperty('DB_ID', DB_ID);
+  else if (!p.getProperty('DB_ID')) p.setProperty('DB_ID', SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (ADMIN_TEMP_PASSWORD.indexOf('__') !== 0) p.setProperty('ADMIN_TEMP', ADMIN_TEMP_PASSWORD);
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'checkForUpdate') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('checkForUpdate').timeBased().everyMinutes(5).create();
+  var r;
+  try { r = checkForUpdate(); } catch (e) { r = 'Auto-update installed; first check: ' + e.message; }
+  Logger.log(r);
+  return r;
+}
+
+function fetchText_(url) {
+  var r = UrlFetchApp.fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now(),
+    { muteHttpExceptions: true, headers: { 'Cache-Control': 'no-cache' } });
+  if (r.getResponseCode() !== 200) throw new Error('HTTP ' + r.getResponseCode() + ' for ' + url);
+  return r.getContentText();
+}
+
+function scriptApi_(method, path, body) {
+  var r = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + ScriptApp.getScriptId() + path, {
+    method: method, contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    payload: body ? JSON.stringify(body) : undefined
+  });
+  var code = r.getResponseCode(), text = r.getContentText();
+  if (code >= 300) throw new Error('Apps Script API ' + method + ' ' + path + ' -> ' + code + ': ' + text.slice(0, 300));
+  return text ? JSON.parse(text) : {};
+}
+
+function checkForUpdate() {
+  var p = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return 'busy';
+  try {
+    var rel = JSON.parse(fetchText_(RELEASE_BASE + 'release.json'));
+    if (!rel || !rel.sha || rel.tests !== 'passed') return 'no tested release';
+    if (p.getProperty('deployedSha') === rel.sha) return 'up to date ' + rel.sha.slice(0, 7);
+    var code = fetchText_(RELEASE_BASE + 'Code.txt');
+    var manifest = fetchText_(RELEASE_BASE + 'appsscript.json');
+    // safety checks before replacing ourselves
+    if (rel.codeLength && rel.codeLength !== code.length) throw new Error('Release file size mismatch — CDN still updating?');
+    if (code.indexOf('function doPost') < 0 || code.indexOf('function checkForUpdate') < 0)
+      throw new Error('Release is missing doPost/checkForUpdate — refusing to deploy.');
+    new Function(code);          // throws on syntax errors
+    JSON.parse(manifest);
+    scriptApi_('put', '/content', { files: [
+      { name: 'Code', type: 'SERVER_JS', source: code },
+      { name: 'appsscript', type: 'JSON', source: manifest }
+    ] });
+    var ver = scriptApi_('post', '/versions', { description: 'GitHub ' + rel.sha.slice(0, 7) + ' ' + (rel.message || '').slice(0, 60) });
+    scriptApi_('put', '/deployments/' + DEPLOYMENT_ID, { deploymentConfig: {
+      versionNumber: ver.versionNumber, manifestFileName: 'appsscript',
+      description: 'Auto-deploy v' + ver.versionNumber + ' (' + rel.sha.slice(0, 7) + ')' } });
+    p.setProperty('deployedSha', rel.sha);
+    p.setProperty('deployedAt', new Date().toISOString());
+    p.setProperty('deployedVersion', String(ver.versionNumber));
+    try { audit_('system', 'autoDeploy', 'v' + ver.versionNumber + ' ' + rel.sha.slice(0, 7) + ' ' + (rel.message || '')); } catch (e) { /* sheet busy */ }
+    return 'deployed v' + ver.versionNumber + ' (' + rel.sha.slice(0, 7) + ')';
+  } catch (err) {
+    p.setProperty('lastDeployError', new Date().toISOString() + ' ' + err.message);
+    throw err;
+  } finally { lock.releaseLock(); }
 }

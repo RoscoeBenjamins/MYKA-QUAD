@@ -1,25 +1,33 @@
 # Myka Quad — Mini ERP
 
-Live web version of the Myka Quad master workbook: invoices, receipts, purchases, expenses,
+Live: **https://roscoebenjamins.github.io/MYKA-QUAD/**
+
+Web version of the Myka Quad master workbook: invoices, receipts, purchases, expenses,
 customers, products, suppliers, double-entry accounting (general journal, trial balance, P&L,
 balance sheet, VAT report), trend analysis, forecasting, Salesforce-style data-hygiene KPIs and
 an admin portal for users and access.
 
 ```
-GitHub Pages (this repo)            Google Drive — "Myka Quad ERP" folder
-index.html  ── HTTPS/JSON ──►  Apps Script web app (backend/Code.gs)
-config.js (API URL)                         │
-                                            ▼
-                                "Myka Quad DB" Google Sheet (the database)
+push to main
+   │
+   ▼
+GitHub Actions ── test ──► API tests (Code.gs in a fake Apps Script runtime)
+   │                 └──► auto-deploy tests
+   ▼ (only if tests pass)
+build ──► source/ → single-file index.html + config.js
+      └──► backend/Code.gs + appsscript.json + release.json → site /api/
+   ▼
+GitHub Pages ── website live in ~2 min
+   ▲
+   │ every 5 min: "new tested release?"
+Apps Script "Myka Quad API" (Google Drive) ── replaces its own code, cuts a new
+version and repoints the EXISTING web-app deployment (same URL) ── Google Sheet DB
 ```
 
-* `index.html` — the whole app, pre-built into one file.
-* `config.js` — holds the Apps Script Web app URL. Edit this one line to reconnect.
-* `backend/Code.gs` + `appsscript.json` — the API. Lives in Google Drive, not here.
-* `source/` — React + TypeScript source. Rebuild with `pnpm i && npx parcel build index.html`.
-* `backend/test/` — runs Code.gs in Node with fake Google services: `node backend/test/api.test.js`.
-
-No business data is stored in this repo. It all lives in the Google Sheet, behind sign-in.
+* `source/` — React + TypeScript app. `config.js` — the API URL.
+* `backend/Code.gs` + `appsscript.json` — the API. `backend/test/` — its tests.
+* Private values (sheet ID, first-admin password) live in the script's Script Properties,
+  never in this repo. No business data is stored here — it all lives in the Google Sheet.
 
 ## Posting rules (same as the Excel macros)
 
@@ -34,10 +42,5 @@ No business data is stored in this repo. It all lives in the Google Sheet, behin
 
 ## Roles
 
-* **admin** — everything, including the Admin Portal
-* **manager** — record + void in the areas granted
-* **staff** — record in the areas granted, no voiding
-* **viewer** — read-only in the areas granted
-
-Areas: Dashboard, Sales, Purchases & expenses, Customers, Products, Suppliers, Accounting,
-Trend analysis, Forecast, Data hygiene KPIs.
+admin (everything + Admin Portal) · manager (record + void) · staff (record) · viewer (read-only),
+each limited to the areas ticked for them.
