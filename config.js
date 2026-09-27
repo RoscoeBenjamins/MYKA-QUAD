@@ -1,2 +1,5 @@
-// Apps Script Web app URL for the Myka Quad API (Google Drive: Myka Quad ERP folder).
-window.MYKA_CONFIG = { apiUrl: 'https://script.google.com/macros/s/AKfycbxC1ys81n3ySkHk5fECrduOPJ3H-sUFDxO3l7sW8KVnLsI0HJ7Z7IWFeNq35O4BMSw/exec' };
+// API endpoint for the Myka Quad ERP — the Vercel function in api/index.js (database: Supabase).
+// On the Vercel site it is same-origin; the old GitHub Pages address uses the Vercel API directly.
+window.MYKA_CONFIG = {
+  apiUrl: /github\.io$/.test(location.hostname) ? 'https://myka-quad.vercel.app/api' : '/api'
+};

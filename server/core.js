@@ -1,9 +1,9 @@
-// RETIRED 2026-09-27: the API now runs on Vercel (api/index.js + server/core.js) with Supabase Postgres.
-// This Apps Script version is kept for reference only; the mailer (mailer/Mailer.gs) is still live.
 /**
+ * MYKA QUAD — MINI ERP API  (Node port for Vercel + Supabase Postgres)
  * ---------------------------------------------------------------------------
- * Database: the "Myka Quad DB" Google Sheet in the "Myka Quad ERP" Drive folder.
- * Frontend: GitHub Pages site, talks to this script over HTTPS (POST, JSON).
+ * Ported from backend/Code.gs (Google Apps Script). The business logic below is
+ * unchanged; only the data layer (now Postgres via server/runtime.js + a store)
+ * and the mailer call (now fetch) differ.
  *
  * Posting rules mirror the Excel workbook's macros (RecordInvoice / RecordReceipt):
  *   Invoice : Dr 1100 A/R (total)        Cr 4000 Sales (subtotal)   Cr 2100 VAT (vat)
@@ -12,19 +12,15 @@
  *   Purchase: Dr 5100 Purchases          Cr Cash/MoMo/Bank  (or 2000 A/P if on credit)
  *   Expense : Dr 6000 Operating Exp.     Cr Cash/MoMo/Bank
  *   Void inv: exact reversal of the invoice's journal lines
- *
- * ONE-TIME SETUP: see the README in the Drive folder (Deploy > New deployment >
- * Web app > Execute as: Me > Who has access: Anyone).
  */
+'use strict';
+const { als, cur, UnitOfWork, Utilities, Session, LockService, PropertiesService, CacheService } = require('./runtime');
 
-// Filled in when the database sheet was created. If this script is bound to the
-// sheet (Extensions > Apps Script) it falls back to the active spreadsheet.
-var DB_ID = '__DB_ID__';
-var ADMIN_TEMP_PASSWORD = '__ADMIN_TEMP__';   // only used to seed the first admin; forced change on first login
-var APP_VERSION = '1.2.0';
+var ADMIN_TEMP_PASSWORD = '';   // first-admin password comes from the ADMIN_TEMP env var
+var APP_VERSION = '2.0.0';
 var TOTP_ISSUER = 'Myka Quad';
 var MFA_CHALLENGE_MIN = 10;
-var MAX_EMAIL_BYTES = 8 * 1024 * 1024;
+var MAX_EMAIL_BYTES = 3 * 1024 * 1024;   // Vercel request bodies are capped at 4.5 MB
 var SESSION_HOURS = 12;
 var HASH_ROUNDS = 300;
 
@@ -75,29 +71,43 @@ var DEFAULT_SETTINGS = {
   twoFactorPolicy: 'all', emailReplyTo: 'mykaquadent@gmail.com', emailSenderName: 'MYKA QUAD LIMITED'
 };
 
+// Tables the request needs loaded (Audit is append-only; only auditLog reads it).
+var READ_ONLY_ACTIONS = { ping: 1, bootstrap: 1, listUsers: 1, auditLog: 1 };
+
 // =============================================================================
-//  HTTP entry points
+//  HTTP entry point
 // =============================================================================
-function doGet(e) {
-  var p = PropertiesService.getScriptProperties();
-  return json_({ ok: true, app: 'Myka Quad ERP API', version: APP_VERSION, time: new Date().toISOString() });
+/**
+ * handle(req, { store, env }) -> { ok, data } | { ok:false, error }
+ * One request = one transaction. Table changes are committed only if the action
+ * succeeds; CacheService changes (failed-login counters, 2-step challenges) are
+ * always kept, exactly like Apps Script's cache.
+ */
+async function handle(req, opts) {
+  req = req || {};
+  var action = req.action, payload = req.payload || {}, token = req.token;
+  var withAudit = action === 'auditLog';
+  var lock = !READ_ONLY_ACTIONS[action];
+  return opts.store.run({ lock: lock, withAudit: withAudit }, async function (snapshot) {
+    var uow = new UnitOfWork(SCHEMA, snapshot.tables, snapshot.cache);
+    var ctx = { uow: uow, env: Object.assign({}, opts.env || {}) };
+    return als.run(ctx, async function () {
+      var res;
+      try {
+        var data = await route_(action, payload, token);
+        res = { ok: true, data: data };
+      } catch (err) {
+        res = { ok: false, error: String(err && err.message ? err.message : err) };
+      }
+      return { result: res, changes: res.ok ? uow.changes() : [], cache: uow.kvChanges() };
+    });
+  });
 }
 
-function doPost(e) {
-  var req;
-  try { req = JSON.parse(e.postData.contents || '{}'); }
-  catch (err) { return json_({ ok: false, error: 'Bad request body' }); }
-  try {
-    var data = route_(req.action, req.payload || {}, req.token);
-    return json_({ ok: true, data: data });
-  } catch (err) {
-    return json_({ ok: false, error: String(err && err.message ? err.message : err) });
-  }
+function doGet() {
+  return { ok: true, app: 'Myka Quad ERP API', version: APP_VERSION, time: new Date().toISOString() };
 }
 
-function json_(o) {
-  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
-}
 
 // action -> [module needed, needs write access]
 var ACTIONS = {
@@ -120,8 +130,9 @@ var ACTIONS = {
   emailDocument:    ['sales', true]
 };
 
-function route_(action, p, token) {
-  ensureSchema_();
+
+async function route_(action, p, token) {
+  if (!read_('Settings').length) seed_();
   if (action === 'ping') return { pong: true };
   if (action === 'login') return login_(p.username, p.password);
   if (action === 'verify2fa') return verify2fa_(p.challenge, p.code);
@@ -132,11 +143,7 @@ function route_(action, p, token) {
     throw new Error('Please change your temporary password first.');
   if (spec[0] && !hasModule_(user, spec[0])) throw new Error('You do not have access to this area.');
   if (spec[1] && user.role === 'viewer') throw new Error('Your account is read-only.');
-  var fn = HANDLERS[action];
-  if (!spec[1]) return fn(p, user);
-  var lock = LockService.getScriptLock();
-  lock.waitLock(25000);
-  try { return fn(p, user); } finally { lock.releaseLock(); }
+  return await HANDLERS[action](p, user);
 }
 
 function hasModule_(user, mod) {
@@ -146,135 +153,12 @@ function hasModule_(user, mod) {
 }
 
 // =============================================================================
-//  Sheet data layer
+//  Data layer (Postgres tables, one per former sheet tab)
 // =============================================================================
-var _ss = null, _cache = {};
-function ss_() {
-  if (_ss) return _ss;
-  var id = PropertiesService.getScriptProperties().getProperty('DB_ID') || DB_ID;
-  _ss = (id && id.indexOf('__') !== 0) ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
-  return _ss;
-}
-
-var _schemaChecked = false;
-function ensureSchema_() {
-  if (_schemaChecked) return;
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('schemaVersion') === '4') { _schemaChecked = true; return; }
-  setup();
-  props.setProperty('schemaVersion', '4');
-  _schemaChecked = true;
-}
-
-/** Run once from the editor (or automatically on first request). Creates any missing tabs + seed data. */
-function setup() {
-  var ss = ss_();
-  Object.keys(SCHEMA).forEach(function (name) {
-    var cols = SCHEMA[name];
-    var sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name);
-    var headers = cols.map(function (c) { return c[0]; });
-    var existing = sh.getLastRow() > 0 ? sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0] : [];
-    if (existing.join('|') !== headers.join('|')) {
-      if (sh.getLastRow() <= 1) {
-        sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
-        sh.setFrozenRows(1);
-      } else {
-        // append any missing columns without disturbing data
-        headers.forEach(function (h) {
-          if (existing.indexOf(h) < 0) sh.getRange(1, sh.getLastColumn() + 1).setValue(h).setFontWeight('bold');
-        });
-      }
-    }
-    // text columns stay text (keeps leading zeros on phone numbers, ISO dates as typed)
-    var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-    cols.forEach(function (c) {
-      var idx = hdr.indexOf(c[0]);
-      if (idx >= 0) sh.getRange(2, idx + 1, sh.getMaxRows() - 1, 1).setNumberFormat(c[1] === 'n' ? '0.00' : '@');
-    });
-  });
-  var sheet1 = ss.getSheetByName('Sheet1');
-  if (sheet1 && sheet1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(sheet1);
-  _cache = {};
-  seed_();
-}
-
-function sheet_(name) {
-  var sh = ss_().getSheetByName(name);
-  if (!sh) throw new Error('Missing sheet ' + name);
-  return sh;
-}
-
-function cellOut_(v, type) {
-  if (type === 'n') { var n = Number(v); return isNaN(n) ? 0 : n; }
-  if (v instanceof Date) {
-    var tz = Session.getScriptTimeZone();
-    return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
-  }
-  return v === null || v === undefined ? '' : String(v);
-}
-
-function read_(name) {
-  if (_cache[name]) return _cache[name];
-  var sh = sheet_(name);
-  var last = sh.getLastRow();
-  var types = {};
-  SCHEMA[name].forEach(function (c) { types[c[0]] = c[1]; });
-  if (last < 2) { _cache[name] = []; return _cache[name]; }
-  var values = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
-  var hdr = values[0];
-  var rows = [];
-  for (var r = 1; r < values.length; r++) {
-    var o = {}, empty = true;
-    for (var c = 0; c < hdr.length; c++) {
-      if (!hdr[c]) continue;
-      var v = values[r][c];
-      if (v !== '' && v !== null) empty = false;
-      o[hdr[c]] = cellOut_(v, types[hdr[c]] || 's');
-    }
-    if (!empty) { o._row = r + 1; rows.push(o); }
-  }
-  _cache[name] = rows;
-  return rows;
-}
-
-function toRow_(name, obj, hdr) {
-  var types = {};
-  SCHEMA[name].forEach(function (c) { types[c[0]] = c[1]; });
-  return hdr.map(function (h) {
-    var v = obj[h];
-    if (v === undefined || v === null) return types[h] === 'n' ? 0 : '';
-    if (types[h] === 'n') { var n = Number(v); return isNaN(n) ? 0 : Math.round(n * 100) / 100; }
-    return String(v);
-  });
-}
-
-function header_(name) {
-  var sh = sheet_(name);
-  return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-}
-
-function append_(name, objs) {
-  if (!objs.length) return;
-  var sh = sheet_(name), hdr = header_(name);
-  var rows = objs.map(function (o) { return toRow_(name, o, hdr); });
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, hdr.length).setValues(rows);
-  delete _cache[name];
-}
-
-function update_(name, row, obj) {
-  var sh = sheet_(name), hdr = header_(name);
-  sh.getRange(row, 1, 1, hdr.length).setValues([toRow_(name, obj, hdr)]);
-  delete _cache[name];
-}
-
-function deleteWhere_(name, pred) {
-  var rows = read_(name).filter(pred).map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
-  var sh = sheet_(name);
-  rows.forEach(function (r) { sh.deleteRow(r); });
-  delete _cache[name];
-  return rows.length;
-}
+function read_(name) { return cur().uow.read(name); }
+function append_(name, objs) { cur().uow.append(name, objs); }
+function update_(name, row, obj) { cur().uow.update(name, row, obj); }
+function deleteWhere_(name, pred) { return cur().uow.deleteWhere(name, pred); }
 
 function find_(name, field, val) {
   var rows = read_(name);
@@ -357,7 +241,7 @@ function seed_() {
     append_('Users', [{
       id: 'U-' + Utilities.getUuid().slice(0, 8), username: 'admin', name: 'Roscoe (Administrator)',
       email: 'fafale17@gmail.com', role: 'admin', modules: MODULES.join(','),
-      passHash: hash_(PropertiesService.getScriptProperties().getProperty('ADMIN_TEMP') || ADMIN_TEMP_PASSWORD, salt), salt: salt, active: 'Y', mustChange: 'Y',
+      passHash: hash_(PropertiesService.getScriptProperties().getProperty('ADMIN_TEMP') || ADMIN_TEMP_PASSWORD || Utilities.getUuid(), salt), salt: salt, active: 'Y', mustChange: 'Y',
       createdAt: new Date().toISOString(), lastLogin: ''
     }]);
   }
@@ -1034,15 +918,7 @@ HANDLERS.clearDemo = function (p, u) {
   return { removed: total };
 };
 function bulkDeleteDemo_(name) {
-  var sh = sheet_(name), hdr = header_(name);
-  var rows = read_(name);
-  var keep = rows.filter(function (r) { return r.isDemo !== 'Y'; });
-  if (keep.length === rows.length) return 0;
-  var last = sh.getLastRow();
-  if (last > 1) sh.getRange(2, 1, last - 1, hdr.length).clearContent();
-  if (keep.length) sh.getRange(2, 1, keep.length, hdr.length).setValues(keep.map(function (o) { return toRow_(name, o, hdr); }));
-  delete _cache[name];
-  return rows.length - keep.length;
+  return deleteWhere_(name, function (r) { return r.isDemo === 'Y'; });
 }
 
 // =============================================================================
@@ -1088,22 +964,26 @@ function escHtml_(s) { return String(s || '').replace(/[&<>"]/g, function (c) { 
  * mykaquadent@gmail.com account and sends from that mailbox. This project never
  * gets Gmail permission. Script Properties needed here: MAILER_URL, MAILER_SECRET.
  */
-function sendViaMailer_(o) {
+async function sendViaMailer_(o) {
   var p = PropertiesService.getScriptProperties();
   var url = p.getProperty('MAILER_URL'), secret = p.getProperty('MAILER_SECRET');
   if (!url || !secret) throw new Error("Email isn't set up yet — the mykaquadent mailer is not connected.");
-  var r = UrlFetchApp.fetch(url, {
-    method: 'post', contentType: 'text/plain', muteHttpExceptions: true, followRedirects: true,
-    payload: JSON.stringify({ secret: secret, to: o.to, cc: o.cc, replyTo: o.replyTo, name: o.fromName, subject: o.subject,
-                              text: o.text, html: o.html, pdfBase64: o.pdfBase64, filename: o.filename })
-  });
+  var r, status = 0, txt = '';
+  try {
+    r = await mailerFetch_(url, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow',
+      body: JSON.stringify({ secret: secret, to: o.to, cc: o.cc, replyTo: o.replyTo, name: o.fromName, subject: o.subject,
+                             text: o.text, html: o.html, pdfBase64: o.pdfBase64, filename: o.filename })
+    });
+    status = r.status; txt = await r.text();
+  } catch (e) { throw new Error('Could not reach the mailer: ' + (e && e.message ? e.message : e)); }
   var body;
-  try { body = JSON.parse(r.getContentText()); } catch (e) { throw new Error('The mailer did not respond properly (' + r.getResponseCode() + '). Is it deployed with access "Anyone"?'); }
+  try { body = JSON.parse(txt); } catch (e) { throw new Error('The mailer did not respond properly (' + status + '). Is it deployed with access "Anyone"?'); }
   if (!body.ok) throw new Error('Email not sent: ' + (body.error || 'unknown error'));
   return body;
 }
 
-HANDLERS.emailDocument = function (p, u) {
+HANDLERS.emailDocument = async function (p, u) {
   var s = settings_();
   var kind = p.kind === 'receipt' ? 'receipt' : 'invoice';
   var doc = kind === 'invoice' ? find_('Invoices', 'invoiceNo', p.no) : find_('Receipts', 'receiptNo', p.no);
@@ -1135,7 +1015,7 @@ HANDLERS.emailDocument = function (p, u) {
     (kind === 'invoice' ? '<p style="background:#f3f7f1;border-left:3px solid #0b5d0b;padding:8px 12px">Payment: ' + escHtml_(pay) + '<br>Please quote <b>' + escHtml_(no) + '</b> as the reference.</p>' : '<p>Thank you for your payment.</p>') +
     '<p>The ' + kind + ' is attached as a PDF.</p>' +
     '<p style="color:#666;font-size:12px;border-top:1px solid #ddd;padding-top:8px">' + escHtml_(s.companyName) + '<br>' + escHtml_(s.address) + '<br>' + escHtml_(s.phone) + ' · ' + escHtml_(s.email) + '</p></div>';
-  var sent = sendViaMailer_({ fromName: s.emailSenderName || s.companyName, replyTo: s.emailReplyTo || '',
+  var sent = await sendViaMailer_({ fromName: s.emailSenderName || s.companyName, replyTo: s.emailReplyTo || '',
     to: to, cc: cc, subject: subject, text: text, html: html, pdfBase64: pdf, filename: no + '.pdf' });
   doc.emailedAt = new Date().toISOString();
   doc.emailedTo = to.concat(cc).join(', ');
@@ -1144,9 +1024,9 @@ HANDLERS.emailDocument = function (p, u) {
   return { ok: true, from: sent.from, emailedAt: doc.emailedAt, emailedTo: doc.emailedTo };
 };
 
-/** Run once from the editor to approve this version's permissions (Sheets + calling the mailer). */
-function authorize() {
-  SpreadsheetApp.getActiveSpreadsheet();
-  UrlFetchApp.getRequest('https://script.google.com/');
-  Logger.log('Permissions approved.');
-}
+
+// fetch is swappable so tests can stand in for the mykaquadent mailer
+var mailerFetch_ = function (url, init) { return fetch(url, init); };
+function setMailerFetch(fn) { mailerFetch_ = fn; }
+
+module.exports = { handle: handle, doGet: doGet, SCHEMA: SCHEMA, hash_: hash_, totpAt_: totpAt_, setMailerFetch: setMailerFetch };

@@ -1,5 +1,5 @@
-// Talks to the Google Apps Script web app (the "backend" living in Google Drive).
-// POST with text/plain avoids a CORS preflight, which Apps Script can't answer.
+// Talks to the Myka Quad API (Vercel function /api, database in Supabase Postgres).
+// POST with text/plain keeps requests "simple" (no CORS preflight).
 
 declare global { interface Window { MYKA_CONFIG?: { apiUrl?: string } } }
 
@@ -37,7 +37,7 @@ export async function api<T = any>(action: string, payload: Record<string, unkno
     throw new Error('Could not reach the server. Check your internet connection.')
   }
   let body: { ok: boolean; data?: T; error?: string }
-  try { body = await res.json() } catch { throw new Error('The server returned an unexpected response. Is the Apps Script deployed with access "Anyone"?') }
+  try { body = await res.json() } catch { throw new Error('The server returned an unexpected response. Please try again in a moment.') }
   if (!body.ok) {
     const msg = body.error || 'Request failed'
     if (msg.startsWith('AUTH:')) { setToken(null); throw new AuthError(msg.slice(5).trim()) }

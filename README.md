@@ -1,6 +1,6 @@
 # Myka Quad — Mini ERP
 
-Live: **https://roscoebenjamins.github.io/MYKA-QUAD/**
+Live: **https://myka-quad.vercel.app** (the old GitHub Pages address keeps working and uses the same API)
 
 Web version of the Myka Quad master workbook: invoices, receipts, purchases, expenses,
 customers, products, suppliers, double-entry accounting (general journal, trial balance, P&L,
@@ -8,26 +8,25 @@ balance sheet, VAT report), trend analysis, forecasting, Salesforce-style data-h
 an admin portal for users and access.
 
 ```
-push to main
-   │
-   ▼
-GitHub Actions ── test ──► API tests (Code.gs in a fake Apps Script runtime)
-   │                 └──► auto-deploy tests
-   ▼ (only if tests pass)
-build ──► source/ → single-file index.html + config.js
-      └──► backend/Code.gs + appsscript.json + release.json → site /api/
-   ▼
-GitHub Pages ── website live in ~2 min
-   ▲
-   │ every 5 min: "new tested release?"
-Apps Script "Myka Quad API" (Google Drive) ── replaces its own code, cuts a new
-version and repoints the EXISTING web-app deployment (same URL) ── Google Sheet DB
+browser ──► Vercel (London)
+             ├─ /            source/ → single-file index.html + config.js
+             └─ /api         api/index.js → server/core.js (business logic, 2-step login)
+                                 │  one transaction per request, writes serialised by an advisory lock
+                                 ▼
+                             Supabase Postgres (eu-west-2) — tables in db/schema.sql
+                                 │  RLS on; only the myka_api role has access (no public REST access)
+             emailDocument ──► "Myka Quad Mailer" Apps Script (mykaquadent@gmail.com) ──► customer
 ```
 
-* `source/` — React + TypeScript app. `config.js` — the API URL.
-* `backend/Code.gs` + `appsscript.json` — the API. `backend/test/` — its tests.
-* Private values (sheet ID, first-admin password) live in the script's Script Properties,
-  never in this repo. No business data is stored here — it all lives in the Google Sheet.
+* Push to `main` → Vercel runs `npm test` (API tests + mailer tests), type-checks and builds, then deploys.
+  A failing test blocks the deploy.
+* `server/core.js` — the API (ported 1:1 from the old Apps Script `backend/Code.gs`, kept for reference).
+  `server/runtime.js` — per-request unit of work + Apps Script service shims. `server/store-pg.js` — Postgres.
+* `db/schema.sql` — database schema and access rules.
+* Vercel environment variables (never in this repo): `DATABASE_URL` (Supabase pooler, role `myka_api`),
+  `MAILER_URL`, `MAILER_SECRET`, optional `ADMIN_TEMP` (first-admin password on an empty database).
+* Local: `npm install && npm test`; `TEST_DATABASE_URL=postgres://… npm test` runs the same tests on Postgres;
+  `node backend/test/server.js` is a local API on :8787 with an in-memory database.
 
 ## Posting rules (same as the Excel macros)
 

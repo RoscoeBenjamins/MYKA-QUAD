@@ -1,0 +1,13 @@
+{
+  "name": "myka-quad-erp",
+  "private": true,
+  "description": "Myka Quad mini ERP — React front end (source/) + API on Vercel (api/, server/) + Supabase Postgres (db/)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node backend/test/api.test.js && node backend/test/mailer.test.js",
+    "dev:api": "node backend/test/server.js"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}
