@@ -5,5 +5,5 @@ module.exports = function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
-  res.end(JSON.stringify({ ok: false, error: 'Myka Quad has moved to a new address on Cloudflare. Please use the new link (ask Roscoe).' }));
+  res.end(JSON.stringify({ ok: false, error: 'Myka Quad has moved to a new address on Cloudflare. Please use the new link: https://myka-quad.awuben.workers.dev.' }));
 };

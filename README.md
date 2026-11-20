@@ -1,6 +1,6 @@
 # Myka Quad — Mini ERP
 
-Live: on Cloudflare — a Worker named **myka-quad** (address in the Cloudflare dashboard, `*.workers.dev`).
+Live: **https://myka-quad.awuben.workers.dev** (Cloudflare Worker `myka-quad`, account awuben).
 
 Web version of the Myka Quad master workbook: invoices, receipts, purchases, expenses,
 customers, products, suppliers, double-entry accounting (general journal, trial balance, P&L,
