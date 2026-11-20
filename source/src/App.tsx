@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AppProvider, useApp, useRoute, go } from '@/lib/store'
 import { getApiUrl, setApiUrl, api } from '@/lib/api'
-import { LOGO } from '@/lib/logo'
+import { MykaLogo, Sunburst } from '@/components/MykaLogo'
 import type { Module } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -93,9 +93,9 @@ function Shell({ children }: { children: ReactNode }) {
       <aside aria-label="Navigation" className={cn('no-print fixed inset-y-0 left-0 z-50 w-[280px] lg:w-[264px] material border-r flex flex-col pt-safe transition-transform duration-300 ease-out lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen',
         open ? 'translate-x-0' : '-translate-x-full')}>
         <div className="px-5 pt-5 pb-2 flex items-center gap-3">
-          <div className="bg-white rounded-[10px] px-2 py-1.5 shadow-sm"><img src={LOGO} alt="Myka" className="h-7" /></div>
+          <MykaLogo className="h-9 w-auto drop-shadow-sm" />
           <div className="leading-tight">
-            <div className="text-[15px] font-semibold">Myka Quad</div>
+            <div className="text-[15px] font-extrabold font-display text-primary">Myka Quad</div>
             <div className="text-xs text-muted-foreground">Mini ERP</div>
           </div>
           <button className={cn(iconBtn, 'ml-auto lg:hidden')} onClick={() => setOpen(false)} aria-label="Close menu"><X className="h-5 w-5" /></button>
@@ -123,7 +123,7 @@ function Shell({ children }: { children: ReactNode }) {
         {/* mobile navigation bar */}
         <header className="no-print lg:hidden sticky top-0 z-30 material border-b pt-safe">
           <div className="flex items-center gap-2 px-3 h-12">
-            <img src={LOGO} alt="" className="h-6 ml-1" />
+            <MykaLogo className="h-7 w-auto ml-1" title="" />
             <span className="font-semibold text-[15px] truncate">{current?.label || data?.settings.companyName}</span>
             <button onClick={refresh} className={cn(iconBtn, 'ml-auto')} aria-label="Refresh data"><RefreshCw className={cn('h-[18px] w-[18px]', refreshing && 'animate-spin')} /></button>
           </div>
@@ -183,18 +183,19 @@ function Router() {
 function AuthFrame({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
-      <div className="hidden lg:flex flex-col justify-between bg-brand-dark text-white p-12 relative overflow-hidden">
-        <div className="absolute -right-24 -bottom-24 h-96 w-96 rounded-full bg-[hsl(30_92%_48%)]/25 blur-3xl" aria-hidden />
-        <div className="absolute -left-20 top-1/3 h-72 w-72 rounded-full bg-[hsl(140_64%_40%)]/25 blur-3xl" aria-hidden />
-        <div className="bg-white rounded-[14px] px-3 py-2 w-fit shadow-lg"><img src={LOGO} alt="Myka" className="h-10" /></div>
+      <div className="hidden lg:flex flex-col justify-between p-12 relative overflow-hidden text-[#111]">
+        <Sunburst className="absolute inset-0 h-full w-full" />
+        <MykaLogo className="relative h-20 w-auto self-start drop-shadow-md" />
         <div className="relative">
-          <div className="text-xs tracking-[0.2em] text-[hsl(30_92%_62%)] font-semibold mb-3">MYKA QUAD LIMITED</div>
-          <h1 className="text-[40px] font-bold leading-[1.1] max-w-md">Invoices, receipts, books and forecasts. One place.</h1>
-          <p className="mt-4 text-white/70 max-w-md text-[15px] leading-relaxed">Palm oil, gari and eggs, from Danlect and Theodora Farms to your customers. Every sale posts straight to the general journal.</p>
+          <div className="text-xs tracking-[0.2em] text-[#075C25] font-extrabold mb-3 font-display">MYKA QUAD LIMITED</div>
+          <h1 className="font-display text-[40px] font-extrabold leading-[1.1] max-w-md text-[#075C25]">Invoices, receipts, books and forecasts. One place.</h1>
+          <p className="mt-4 text-[#3a2a00] max-w-md text-[15px] leading-relaxed font-semibold">Palm oil, gari and eggs, from Danlect and Theodora Farms to your customers. Every sale posts straight to the general journal.</p>
         </div>
-        <div className="text-xs text-white/50 relative">NO 377A, Tulip Road, Lakeside Estate · 0274051234</div>
+        <div className="relative text-xs text-[#3a2a00] font-semibold">#377A Lakeside Estate, Accra · 027 405 1234</div>
+        <div className="absolute inset-x-0 bottom-0 h-3 bg-[#8CC63F]" aria-hidden />
       </div>
-      <div className="flex items-center justify-center p-5 pt-safe">
+      <div className="flex flex-col items-center justify-center p-5 pt-safe gap-6">
+        <MykaLogo className="h-14 w-auto lg:hidden" />
         <div className="w-full max-w-sm bg-card rounded-[20px] p-6 sm:p-8 shadow-[0_8px_30px_rgb(0_0_0/0.06)] border">{children}</div>
       </div>
     </div>
@@ -213,7 +214,6 @@ function Login() {
         e.preventDefault(); setBusy(true); setErr('')
         try { const r = await login(u, p); if (r.mfa) setPending(r) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
       }}>
-        <img src={LOGO} alt="Myka" className="h-10 mb-6 lg:hidden" />
         <h2 className="text-[26px] font-bold">Sign in</h2>
         <p className="text-sm text-muted-foreground mb-6">Use the account your administrator created for you.</p>
         <div className="space-y-4">

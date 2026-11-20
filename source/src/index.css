@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,700;0,800;1,800&family=Source+Sans+3:wght@400;600;700;900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
@@ -14,31 +15,33 @@
     --card-foreground: 240 6% 10%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 6% 10%;
-    --primary: 140 64% 30%;             /* Myka tint (green), 4.9:1 on white */
+    --primary: 142 86% 19%;             /* Myka deep green #075C25 (badge), 8.9:1 on white */
     --primary-foreground: 0 0% 100%;
     --secondary: 240 6% 93%;
     --secondary-foreground: 240 6% 10%;
     --muted: 240 6% 94%;
     --muted-foreground: 240 4% 40%;     /* secondaryLabel, 5.9:1 on white */
-    --accent: 140 40% 93%;
-    --accent-foreground: 140 64% 22%;
-    --destructive: 3 78% 46%;
+    --accent: 46 100% 92%;              /* pale Myka gold */
+    --accent-foreground: 28 85% 28%;
+    --destructive: 6 89% 45%;           /* Myka label red #D91E0C */
     --destructive-foreground: 0 0% 100%;
     --border: 240 6% 88%;               /* separator */
     --input: 240 6% 84%;
     --ring: 211 100% 50%;               /* systemBlue focus ring */
     --radius: 0.75rem;
-    --brand: 140 64% 30%;
-    --brand-dark: 150 45% 12%;
-    --flame: 30 92% 48%;
-    --ok: 140 60% 32%;
+    --brand: 142 86% 19%;
+    --brand-dark: 142 86% 12%;
+    --flame: 29 91% 54%;                /* sunburst orange #F58A20 */
+    --gold: 43 100% 55%;                /* #FFC21A */
+    --lime: 87 54% 51%;                 /* #8CC63F */
+    --ok: 142 70% 28%;
     --warn: 36 92% 40%;
-    --bad: 3 78% 46%;
-    --chart-1: 140 60% 34%;
-    --chart-2: 30 92% 50%;
-    --chart-3: 211 80% 50%;
-    --chart-4: 340 65% 52%;
-    --chart-5: 265 45% 55%;
+    --bad: 6 89% 45%;
+    --chart-1: 142 86% 24%;
+    --chart-2: 29 91% 54%;
+    --chart-3: 87 54% 45%;
+    --chart-4: 43 100% 50%;
+    --chart-5: 6 89% 45%;
     --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.03);
   }
   :root[data-theme='dark'] {
@@ -48,27 +51,27 @@
     --card-foreground: 0 0% 96%;
     --popover: 240 3% 14%;
     --popover-foreground: 0 0% 96%;
-    --primary: 140 55% 50%;
-    --primary-foreground: 150 40% 6%;
+    --primary: 115 72% 52%;             /* bright Myka leaf green #4BE02F family */
+    --primary-foreground: 142 86% 8%;
     --secondary: 240 3% 18%;
     --secondary-foreground: 0 0% 96%;
     --muted: 240 3% 16%;
     --muted-foreground: 240 5% 66%;
-    --accent: 140 30% 16%;
-    --accent-foreground: 140 55% 70%;
+    --accent: 40 60% 15%;
+    --accent-foreground: 43 100% 65%;
     --destructive: 3 85% 60%;
     --border: 240 4% 22%;
     --input: 240 4% 26%;
     --ring: 211 100% 60%;
     --brand-dark: 240 3% 8%;
-    --ok: 140 55% 50%;
+    --ok: 115 60% 52%;
     --warn: 38 95% 55%;
     --bad: 3 85% 62%;
-    --chart-1: 140 55% 52%;
-    --chart-2: 32 92% 58%;
-    --chart-3: 211 90% 62%;
-    --chart-4: 340 75% 65%;
-    --chart-5: 265 60% 70%;
+    --chart-1: 115 60% 52%;
+    --chart-2: 29 91% 60%;
+    --chart-3: 87 54% 55%;
+    --chart-4: 43 100% 60%;
+    --chart-5: 6 85% 62%;
     --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.04);
   }
 }
@@ -78,11 +81,12 @@
   html { -webkit-text-size-adjust: 100%; }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    font-size: 16px;
     font-feature-settings: 'tnum' 1;
     letter-spacing: -0.006em;
   }
-  h1, h2, h3 { letter-spacing: -0.02em; }
+  h1, h2, h3, .font-display { font-family: Montserrat, 'Source Sans 3', system-ui, sans-serif; letter-spacing: -0.02em; }
   .mono { font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace; }
   .tabular { font-variant-numeric: tabular-nums; }
   /* grid children may shrink below their content (tables scroll inside instead of widening the page) */
