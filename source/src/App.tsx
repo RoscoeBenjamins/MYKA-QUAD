@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode, type InputHTMLAttributes } from 'react'
 import { AppProvider, useApp, useRoute, go } from '@/lib/store'
 import { getApiUrl, setApiUrl, api } from '@/lib/api'
 import { MykaLogo, Sunburst } from '@/components/MykaLogo'
@@ -12,7 +12,7 @@ import type { LoginResult } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, ReceiptText, ShoppingCart, Users, Package, Truck, BookOpen, TrendingUp,
-  LineChart, ShieldCheck, Settings2, LogOut, Menu, X, Moon, Sun, RefreshCw, Loader2, Lock,
+  LineChart, ShieldCheck, Settings2, LogOut, Menu, X, Moon, Sun, RefreshCw, Loader2, Lock, Eye, EyeOff,
 } from 'lucide-react'
 import Dashboard from '@/pages/Dashboard'
 import Invoices from '@/pages/Invoices'
@@ -182,22 +182,34 @@ function Router() {
 
 function AuthFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
-      <div className="hidden lg:flex flex-col justify-between p-12 relative overflow-hidden text-[#111]">
-        <Sunburst className="absolute inset-0 h-full w-full" />
-        <MykaLogo className="relative h-20 w-auto self-start drop-shadow-md" />
-        <div className="relative">
-          <div className="text-xs tracking-[0.2em] text-[#075C25] font-extrabold mb-3 font-display">MYKA QUAD LIMITED</div>
-          <h1 className="font-display text-[40px] font-extrabold leading-[1.1] max-w-md text-[#075C25]">Invoices, receipts, books and forecasts. One place.</h1>
-          <p className="mt-4 text-[#3a2a00] max-w-md text-[15px] leading-relaxed font-semibold">Palm oil, gari and eggs, from Danlect and Theodora Farms to your customers. Every sale posts straight to the general journal.</p>
+    <div className="relative min-h-[100dvh] overflow-hidden text-[#111] flex flex-col">
+      <Sunburst className="fixed inset-0 h-full w-full" />
+      <main className="relative flex-1 flex flex-col items-center justify-center px-5 pt-[max(24px,env(safe-area-inset-top))] pb-8 gap-6">
+        <MykaLogo className="h-24 sm:h-28 w-auto drop-shadow-[0_6px_14px_rgb(7_92_37/0.35)]" />
+        <div className="text-center -mt-1">
+          <div className="font-display text-[13px] tracking-[0.22em] font-extrabold text-[#075C25]">MYKA QUAD LIMITED</div>
+          <div className="text-[15px] font-semibold text-[#5a3b00] mt-1">Invoices · receipts · books · forecasts</div>
         </div>
-        <div className="relative text-xs text-[#3a2a00] font-semibold">#377A Lakeside Estate, Accra · 027 405 1234</div>
-        <div className="absolute inset-x-0 bottom-0 h-3 bg-[#8CC63F]" aria-hidden />
-      </div>
-      <div className="flex flex-col items-center justify-center p-5 pt-safe gap-6">
-        <MykaLogo className="h-14 w-auto lg:hidden" />
-        <div className="w-full max-w-sm bg-card rounded-[20px] p-6 sm:p-8 shadow-[0_8px_30px_rgb(0_0_0/0.06)] border">{children}</div>
-      </div>
+        <div className="w-full max-w-[400px] rounded-[24px] bg-white/95 backdrop-blur-xl p-6 sm:p-8 shadow-[0_20px_50px_-12px_rgb(120_60_0/0.45)] ring-1 ring-black/5 text-[#111] [--background:0_0%_100%] [--card:0_0%_100%] [--foreground:240_6%_10%] [--muted-foreground:240_4%_40%] [--input:240_6%_84%] [--primary:142_86%_19%] [--primary-foreground:0_0%_100%]">
+          {children}
+        </div>
+      </main>
+      <footer className="relative bg-[#8CC63F] text-[#0b3d1a] text-center text-[12px] font-semibold px-4 py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] shadow-[0_-1px_0_#fff]">
+        Product of Myka Ltd · #377A Lakeside Estate, Accra · Made in Ghana
+      </footer>
+    </div>
+  )
+}
+
+function PasswordInput(p: InputHTMLAttributes<HTMLInputElement>) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <TextInput {...p} type={show ? 'text' : 'password'} className="pr-12" />
+      <button type="button" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'}
+        className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10 grid place-items-center rounded-full text-muted-foreground hover:bg-secondary">
+        {show ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+      </button>
     </div>
   )
 }
@@ -214,14 +226,15 @@ function Login() {
         e.preventDefault(); setBusy(true); setErr('')
         try { const r = await login(u, p); if (r.mfa) setPending(r) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
       }}>
-        <h2 className="text-[26px] font-bold">Sign in</h2>
-        <p className="text-sm text-muted-foreground mb-6">Use the account your administrator created for you.</p>
+        <h2 className="text-[26px] font-bold text-[#075C25]">Welcome back</h2>
+        <p className="text-[15px] text-muted-foreground mb-6">Sign in with the account your administrator created for you.</p>
         <div className="space-y-4">
-          <Field label="Username"><TextInput autoFocus autoComplete="username" value={u} onChange={e => setU(e.target.value)} /></Field>
-          <Field label="Password"><TextInput type="password" autoComplete="current-password" value={p} onChange={e => setP(e.target.value)} /></Field>
-          {err && <div className="text-sm text-bad bg-bad/10 border border-bad/30 rounded px-3 py-2">{err}</div>}
-          <Button className="w-full" disabled={busy}>{busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sign in</Button>
+          <Field label="Username"><TextInput autoFocus autoComplete="username" autoCapitalize="none" spellCheck={false} value={u} onChange={e => setU(e.target.value)} /></Field>
+          <Field label="Password"><PasswordInput autoComplete="current-password" value={p} onChange={e => setP(e.target.value)} /></Field>
+          {err && <div role="alert" className="text-sm text-bad bg-bad/10 border border-bad/30 rounded-[10px] px-3 py-2">{err}</div>}
+          <Button size="lg" className="w-full h-12 text-[16px] rounded-[14px]" disabled={busy || !u || !p}>{busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sign in</Button>
         </div>
+        <p className="mt-6 text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5"><Lock className="h-3.5 w-3.5" aria-hidden /> Protected with 2-step verification</p>
       </form>
     </AuthFrame>
   )
