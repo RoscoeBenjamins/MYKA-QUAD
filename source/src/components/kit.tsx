@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button'
 
 export function PageHeader({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4 mb-6">
+    <div className="flex flex-wrap items-end justify-between gap-3 pb-2 mb-6">
       <div>
-        <h1 className="text-2xl font-extrabold tracking-tight">{title}</h1>
-        {sub && <p className="text-sm text-muted-foreground mt-1">{sub}</p>}
+        <h1 className="text-[28px] sm:text-[34px] leading-tight font-bold tracking-tight">{title}</h1>
+        {sub && <p className="text-[15px] text-muted-foreground mt-1">{sub}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2 no-print">{actions}</div>}
     </div>
@@ -18,11 +18,11 @@ export function PageHeader({ title, sub, actions }: { title: string; sub?: React
 
 export function Panel({ title, sub, children, className, actions }: { title?: string; sub?: ReactNode; children: ReactNode; className?: string; actions?: ReactNode }) {
   return (
-    <section className={cn('bg-card border rounded-md', className)}>
+    <section className={cn('bg-card rounded-[16px] border border-transparent dark:border-border min-w-0', className)}>
       {(title || actions) && (
         <div className="flex items-start justify-between gap-2 px-4 pt-4">
           <div>
-            {title && <h2 className="font-bold text-[15px]">{title}</h2>}
+            {title && <h2 className="font-semibold text-[17px]">{title}</h2>}
             {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
           </div>
           {actions}
@@ -36,10 +36,10 @@ export function Panel({ title, sub, children, className, actions }: { title?: st
 export function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: 'ok' | 'warn' | 'bad' | 'brand' }) {
   const bar = tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'ok' ? 'bg-ok' : 'bg-brand'
   return (
-    <div className="bg-card border rounded-md p-4 relative overflow-hidden">
-      <span className={cn('absolute left-0 top-0 h-full w-1', bar)} />
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-2xl font-extrabold mt-1 tabular">{value}</div>
+    <div className="bg-card rounded-[16px] p-4 relative overflow-hidden">
+      <span className={cn('absolute left-4 top-4 h-2 w-2 rounded-full', bar)} aria-hidden />
+      <div className="pl-4 text-[13px] font-medium text-muted-foreground">{label}</div>
+      <div className="text-[26px] font-bold mt-1 tabular tracking-tight">{value}</div>
       {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
     </div>
   )
@@ -53,13 +53,13 @@ const tones: Record<string, string> = {
 }
 export function Tag({ children, tone, className }: { children: ReactNode; tone?: string; className?: string }) {
   const k = tone || String(children)
-  return <span className={cn('inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap', tones[k] || 'bg-secondary text-secondary-foreground border-border', className)}>{children}</span>
+  return <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap', tones[k] || 'bg-secondary text-secondary-foreground border-border', className)}>{children}</span>
 }
 
 export function Field({ label, children, hint, className }: { label: string; children: ReactNode; hint?: ReactNode; className?: string }) {
   return (
     <label className={cn('block', className)}>
-      <span className="block text-xs font-semibold text-muted-foreground mb-1">{label}</span>
+      <span className="block text-[13px] font-medium text-muted-foreground mb-1.5">{label}</span>
       {children}
       {hint && <span className="block text-[11px] text-muted-foreground mt-1">{hint}</span>}
     </label>
@@ -68,13 +68,13 @@ export function Field({ label, children, hint, className }: { label: string; chi
 
 export function NativeSelect({ className, children, ...p }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select {...p} className={cn('h-9 w-full rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60', className)}>
+    <select {...p} className={cn('h-11 sm:h-10 w-full rounded-[10px] border border-input bg-card px-3 text-[16px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60', className)}>
       {children}
     </select>
   )
 }
 export function TextInput({ className, ...p }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...p} className={cn('h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60', className)} />
+  return <input {...p} className={cn('h-11 sm:h-10 w-full rounded-[10px] border border-input bg-card px-3 text-[16px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60', className)} />
 }
 
 export interface Col<T> { key: string; label: string; render?: (r: T) => ReactNode; align?: 'right' | 'left'; sortValue?: (r: T) => string | number; csv?: (r: T) => unknown; className?: string }
@@ -109,8 +109,8 @@ export function DataTable<T extends Record<string, any>>({ rows, cols, filename,
         <div className="flex flex-wrap items-center gap-2 mb-3 no-print">
           {searchable && (
             <div className="relative w-full sm:w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <TextInput placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} className="pl-8" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
+              <TextInput placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} className="pl-9" aria-label="Search" />
             </div>
           )}
           {toolbar}
@@ -122,10 +122,10 @@ export function DataTable<T extends Record<string, any>>({ rows, cols, filename,
           )}
         </div>
       )}
-      <div className="overflow-x-auto border rounded-md bg-card">
+      <div className="overflow-x-auto rounded-[14px] bg-card">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-secondary/70 text-left">
+            <tr className="text-left text-muted-foreground border-b">
               {cols.map(c => (
                 <th key={c.key} className={cn('px-3 py-2 font-semibold text-xs whitespace-nowrap select-none cursor-pointer', c.align === 'right' && 'text-right')}
                   onClick={() => setSort(s => ({ key: c.key, dir: s?.key === c.key && s.dir === 'desc' ? 'asc' : 'desc' }))}>
@@ -136,7 +136,7 @@ export function DataTable<T extends Record<string, any>>({ rows, cols, filename,
           </thead>
           <tbody>
             {filtered.slice(0, limit).map((r, i) => (
-              <tr key={i} onClick={onRow ? () => onRow(r) : undefined} className={cn('border-t', onRow && 'cursor-pointer hover:bg-accent/40')}>
+              <tr key={i} onClick={onRow ? () => onRow(r) : undefined} className={cn('border-t first:border-t-0', onRow && 'cursor-pointer hover:bg-secondary/60 active:bg-secondary')}>
                 {cols.map(c => (
                   <td key={c.key} className={cn('px-3 py-2 align-top', c.className ? '' : 'whitespace-nowrap', c.align === 'right' && 'text-right tabular whitespace-nowrap', c.className)}>
                     {c.render ? c.render(r) : String(r[c.key] ?? '')}

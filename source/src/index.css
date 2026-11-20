@@ -5,82 +5,103 @@
 @tailwind utilities;
 
 @layer base {
+  /* Apple HIG-inspired tokens: grouped background, white cards, hairline separators,
+     the Myka green as the app tint, system colours for status. */
   :root {
-    --background: 42 33% 97%;
-    --foreground: 150 25% 10%;
+    --background: 240 24% 96%;          /* systemGroupedBackground #F2F2F7 */
+    --foreground: 240 6% 10%;           /* label */
     --card: 0 0% 100%;
-    --card-foreground: 150 25% 10%;
+    --card-foreground: 240 6% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 150 25% 10%;
-    --primary: 124 100% 21%;
-    --primary-foreground: 60 30% 98%;
-    --secondary: 40 30% 92%;
-    --secondary-foreground: 150 25% 12%;
-    --muted: 40 22% 93%;
-    --muted-foreground: 150 8% 38%;
-    --accent: 33 90% 94%;
-    --accent-foreground: 25 80% 28%;
-    --destructive: 2 72% 48%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 40 16% 86%;
-    --input: 40 16% 82%;
-    --ring: 124 100% 25%;
-    --radius: 0.375rem;
-    --brand: 124 100% 21%;
-    --brand-dark: 150 60% 11%;
+    --popover-foreground: 240 6% 10%;
+    --primary: 140 64% 30%;             /* Myka tint (green), 4.9:1 on white */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 93%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 6% 94%;
+    --muted-foreground: 240 4% 40%;     /* secondaryLabel, 5.9:1 on white */
+    --accent: 140 40% 93%;
+    --accent-foreground: 140 64% 22%;
+    --destructive: 3 78% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 88%;               /* separator */
+    --input: 240 6% 84%;
+    --ring: 211 100% 50%;               /* systemBlue focus ring */
+    --radius: 0.75rem;
+    --brand: 140 64% 30%;
+    --brand-dark: 150 45% 12%;
     --flame: 30 92% 48%;
-    --ok: 124 60% 32%;
-    --warn: 36 92% 45%;
-    --bad: 2 72% 48%;
-    --chart-1: 124 70% 28%;
+    --ok: 140 60% 32%;
+    --warn: 36 92% 40%;
+    --bad: 3 78% 46%;
+    --chart-1: 140 60% 34%;
     --chart-2: 30 92% 50%;
-    --chart-3: 200 45% 40%;
-    --chart-4: 350 55% 48%;
-    --chart-5: 60 50% 40%;
+    --chart-3: 211 80% 50%;
+    --chart-4: 340 65% 52%;
+    --chart-5: 265 45% 55%;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.03);
   }
   :root[data-theme='dark'] {
-    --background: 150 20% 7%;
-    --foreground: 60 20% 94%;
-    --card: 150 18% 10%;
-    --card-foreground: 60 20% 94%;
-    --popover: 150 18% 10%;
-    --popover-foreground: 60 20% 94%;
-    --primary: 120 55% 45%;
-    --primary-foreground: 150 30% 8%;
-    --secondary: 150 12% 16%;
-    --secondary-foreground: 60 20% 94%;
-    --muted: 150 12% 15%;
-    --muted-foreground: 60 8% 65%;
-    --accent: 30 40% 18%;
-    --accent-foreground: 33 90% 75%;
-    --destructive: 2 65% 55%;
-    --border: 150 10% 20%;
-    --input: 150 10% 24%;
-    --ring: 120 55% 45%;
-    --brand-dark: 150 30% 5%;
-    --chart-1: 120 50% 50%;
-    --chart-2: 32 90% 58%;
-    --chart-3: 200 50% 60%;
-    --chart-4: 350 60% 62%;
-    --chart-5: 60 50% 55%;
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
+    --card: 240 3% 11%;                 /* secondarySystemGroupedBackground #1C1C1E */
+    --card-foreground: 0 0% 96%;
+    --popover: 240 3% 14%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 140 55% 50%;
+    --primary-foreground: 150 40% 6%;
+    --secondary: 240 3% 18%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 3% 16%;
+    --muted-foreground: 240 5% 66%;
+    --accent: 140 30% 16%;
+    --accent-foreground: 140 55% 70%;
+    --destructive: 3 85% 60%;
+    --border: 240 4% 22%;
+    --input: 240 4% 26%;
+    --ring: 211 100% 60%;
+    --brand-dark: 240 3% 8%;
+    --ok: 140 55% 50%;
+    --warn: 38 95% 55%;
+    --bad: 3 85% 62%;
+    --chart-1: 140 55% 52%;
+    --chart-2: 32 92% 58%;
+    --chart-3: 211 90% 62%;
+    --chart-4: 340 75% 65%;
+    --chart-5: 265 60% 70%;
+    --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.04);
   }
 }
 
 @layer base {
   * { @apply border-border; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-feature-settings: 'tnum' 1;
+    letter-spacing: -0.006em;
   }
-  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  h1, h2, h3 { letter-spacing: -0.02em; }
+  .mono { font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace; }
   .tabular { font-variant-numeric: tabular-nums; }
+  /* grid children may shrink below their content (tables scroll inside instead of widening the page) */
+  .grid > * { min-width: 0; }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  ::selection { background: hsl(var(--primary) / 0.2); }
+  .bg-card { box-shadow: var(--shadow-card); }
+  .material { background: hsl(var(--card) / 0.72); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
 }
 
 /* ---------- printable documents ---------- */
 .doc-sheet {
   width: 210mm; min-height: 297mm; padding: 14mm 14mm 12mm; background: #fff; color: #111;
-  font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 11.5px; box-sizing: border-box;
+  font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; font-size: 11.5px; box-sizing: border-box;
 }
 .doc-sheet table { width: 100%; border-collapse: collapse; }
 .doc-sheet th { background: #0b5d0b; color: #fff; text-align: left; padding: 7px 8px; font-weight: 600; font-size: 11px; }

@@ -27,7 +27,7 @@ function Letterhead({ s, title, no, date, tone = '#0b5d0b' }: { s: Settings; tit
         <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: 1, color: tone }}>{title}</div>
         <table style={{ width: 'auto', marginLeft: 'auto', marginTop: 6 }}>
           <tbody>
-            <tr><td style={{ border: 0, padding: '2px 8px', color: '#666' }}>No.</td><td style={{ border: 0, padding: '2px 0', fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace' }}>{no}</td></tr>
+            <tr><td style={{ border: 0, padding: '2px 8px', color: '#666' }}>No.</td><td style={{ border: 0, padding: '2px 0', fontWeight: 700, fontFamily: 'ui-monospace, Menlo, Consolas, monospace' }}>{no}</td></tr>
             <tr><td style={{ border: 0, padding: '2px 8px', color: '#666' }}>Date</td><td style={{ border: 0, padding: '2px 0', fontWeight: 600 }}>{fmtDate(date)}</td></tr>
           </tbody>
         </table>

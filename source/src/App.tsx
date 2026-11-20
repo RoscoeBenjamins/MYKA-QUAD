@@ -49,6 +49,8 @@ function useTheme() {
   return [dark, setDark] as const
 }
 
+const TABS = ['/dashboard', '/invoices', '/receipts', '/purchases']
+
 function Shell({ children }: { children: ReactNode }) {
   const { user, data, logout, can, reload } = useApp()
   const route = useRoute()
@@ -58,58 +60,94 @@ function Shell({ children }: { children: ReactNode }) {
   const [secOpen, setSecOpen] = useState(false)
   const items = NAV.filter(n => can(n.mod))
   const groups = [...new Set(items.map(i => i.group))]
+  const current = items.find(i => route.startsWith(i.path))
+  const tabs = items.filter(i => TABS.includes(i.path)).slice(0, 4)
   useEffect(() => setOpen(false), [route])
-  return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
-      <aside className={cn('no-print fixed inset-y-0 left-0 z-40 w-[248px] bg-brand-dark text-[hsl(60_20%_92%)] flex flex-col transition-transform lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen',
-        open ? 'translate-x-0' : '-translate-x-full')}>
-        <div className="px-4 pt-5 pb-4 flex items-center gap-3">
-          <div className="bg-white rounded px-2 py-1.5"><img src={LOGO} alt="Myka" className="h-7" /></div>
-          <div className="leading-tight">
-            <div className="text-[11px] tracking-[0.18em] text-[hsl(30_92%_60%)] font-bold">MYKA QUAD</div>
-            <div className="text-xs opacity-70">Mini ERP</div>
-          </div>
-          <button className="ml-auto lg:hidden" onClick={() => setOpen(false)} aria-label="Close menu"><X className="h-5 w-5" /></button>
+  useEffect(() => { document.title = (current ? current.label + ' · ' : '') + 'Myka Quad' }, [current])
+  const refresh = async () => { setRefreshing(true); try { await reload(); toast.success('Data refreshed') } finally { setRefreshing(false) } }
+  const iconBtn = 'h-10 w-10 grid place-items-center rounded-full hover:bg-secondary active:bg-secondary/70 transition-colors'
+
+  const NavList = (
+    <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
+      {groups.map(g => (
+        <div key={g} className="mt-4">
+          <div className="px-3 pb-1.5 text-[11px] uppercase tracking-[0.08em] text-muted-foreground font-semibold">{g}</div>
+          {items.filter(i => i.group === g).map(i => {
+            const active = route.startsWith(i.path)
+            return (
+              <a key={i.path} href={'#' + i.path} aria-current={active ? 'page' : undefined}
+                className={cn('flex items-center gap-3 px-3 min-h-[40px] rounded-[10px] text-[14px] font-medium transition-colors',
+                  active ? 'bg-primary text-primary-foreground' : 'text-foreground/85 hover:bg-secondary')}>
+                <i.icon className="h-[18px] w-[18px]" aria-hidden /> {i.label}
+              </a>
+            )
+          })}
         </div>
-        <nav className="flex-1 overflow-y-auto px-2 pb-4">
-          {groups.map(g => (
-            <div key={g} className="mt-3">
-              <div className="px-3 pb-1 text-[10px] uppercase tracking-[0.16em] opacity-50 font-semibold">{g}</div>
-              {items.filter(i => i.group === g).map(i => {
-                const active = route.startsWith(i.path)
-                return (
-                  <a key={i.path} href={'#' + i.path}
-                    className={cn('flex items-center gap-2.5 px-3 py-2 rounded text-[13.5px] font-medium',
-                      active ? 'bg-white/10 text-white shadow-[inset_3px_0_0_hsl(30_92%_52%)]' : 'opacity-80 hover:opacity-100 hover:bg-white/5')}>
-                    <i.icon className="h-4 w-4" /> {i.label}
-                  </a>
-                )
-              })}
+      ))}
+    </nav>
+  )
+
+  return (
+    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr]">
+      {/* sidebar (desktop) / sheet (mobile "More") */}
+      <aside aria-label="Navigation" className={cn('no-print fixed inset-y-0 left-0 z-50 w-[280px] lg:w-[264px] material border-r flex flex-col pt-safe transition-transform duration-300 ease-out lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen',
+        open ? 'translate-x-0' : '-translate-x-full')}>
+        <div className="px-5 pt-5 pb-2 flex items-center gap-3">
+          <div className="bg-white rounded-[10px] px-2 py-1.5 shadow-sm"><img src={LOGO} alt="Myka" className="h-7" /></div>
+          <div className="leading-tight">
+            <div className="text-[15px] font-semibold">Myka Quad</div>
+            <div className="text-xs text-muted-foreground">Mini ERP</div>
+          </div>
+          <button className={cn(iconBtn, 'ml-auto lg:hidden')} onClick={() => setOpen(false)} aria-label="Close menu"><X className="h-5 w-5" /></button>
+        </div>
+        {NavList}
+        <div className="border-t p-3 pb-safe">
+          <div className="flex items-center gap-3 px-2 py-1">
+            <div className="h-9 w-9 rounded-full bg-primary/15 text-primary grid place-items-center text-sm font-semibold" aria-hidden>{(user?.name || '?').slice(0, 1).toUpperCase()}</div>
+            <div className="min-w-0">
+              <div className="font-semibold text-sm truncate">{user?.name}</div>
+              <div className="text-xs text-muted-foreground truncate">@{user?.username} · {user?.role}</div>
             </div>
-          ))}
-        </nav>
-        <div className="border-t border-white/10 p-3 text-xs">
-          <div className="font-semibold text-sm truncate">{user?.name}</div>
-          <div className="opacity-60 truncate">@{user?.username} · {user?.role}</div>
-          <div className="flex gap-1 mt-2">
-            <button onClick={() => setDark(!dark)} className="p-1.5 rounded hover:bg-white/10" title="Toggle theme">{dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
-            <button onClick={async () => { setRefreshing(true); await reload(); setRefreshing(false); toast.success('Data refreshed') }} className="p-1.5 rounded hover:bg-white/10" title="Refresh data">
-              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-            </button>
-            <button onClick={() => setSecOpen(true)} className="p-1.5 rounded hover:bg-white/10" title="Account security"><Lock className="h-4 w-4" /></button>
-            <button onClick={logout} className="ml-auto flex items-center gap-1 px-2 py-1.5 rounded hover:bg-white/10"><LogOut className="h-4 w-4" /> Sign out</button>
+          </div>
+          <div className="flex items-center gap-1 mt-2">
+            <button onClick={() => setDark(!dark)} className={iconBtn} aria-label={dark ? 'Light appearance' : 'Dark appearance'} title="Appearance">{dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}</button>
+            <button onClick={refresh} className={iconBtn} aria-label="Refresh data" title="Refresh data"><RefreshCw className={cn('h-[18px] w-[18px]', refreshing && 'animate-spin')} /></button>
+            <button onClick={() => setSecOpen(true)} className={iconBtn} aria-label="Account security" title="Account security"><Lock className="h-[18px] w-[18px]" /></button>
+            <button onClick={logout} className="ml-auto flex items-center gap-1.5 px-3 h-10 rounded-full text-sm font-medium text-bad hover:bg-bad/10"><LogOut className="h-4 w-4" aria-hidden /> Sign out</button>
           </div>
         </div>
       </aside>
-      {open && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden no-print" onClick={() => setOpen(false)} />}
-      <div className="min-w-0">
-        <header className="no-print lg:hidden sticky top-0 z-20 flex items-center gap-3 border-b bg-background/95 backdrop-blur px-4 h-14">
-          <button onClick={() => setOpen(true)} aria-label="Open menu"><Menu className="h-5 w-5" /></button>
-          <img src={LOGO} alt="" className="h-6" />
-          <span className="font-bold text-sm">{data?.settings.companyName}</span>
+      {open && <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] lg:hidden no-print" onClick={() => setOpen(false)} aria-hidden />}
+
+      <div className="min-w-0 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
+        {/* mobile navigation bar */}
+        <header className="no-print lg:hidden sticky top-0 z-30 material border-b pt-safe">
+          <div className="flex items-center gap-2 px-3 h-12">
+            <img src={LOGO} alt="" className="h-6 ml-1" />
+            <span className="font-semibold text-[15px] truncate">{current?.label || data?.settings.companyName}</span>
+            <button onClick={refresh} className={cn(iconBtn, 'ml-auto')} aria-label="Refresh data"><RefreshCw className={cn('h-[18px] w-[18px]', refreshing && 'animate-spin')} /></button>
+          </div>
         </header>
-        <main className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px]">{children}</main>
+        <main className="px-4 sm:px-6 lg:px-10 py-5 lg:py-8 max-w-[1400px] mx-auto">{children}</main>
       </div>
+
+      {/* mobile tab bar (HIG: max 5 items) */}
+      <nav aria-label="Tabs" className="no-print lg:hidden fixed bottom-0 inset-x-0 z-30 material border-t pb-safe">
+        <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}>
+          {tabs.map(i => {
+            const active = route.startsWith(i.path)
+            return (
+              <a key={i.path} href={'#' + i.path} aria-current={active ? 'page' : undefined}
+                className={cn('flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-medium', active ? 'text-primary' : 'text-muted-foreground')}>
+                <i.icon className="h-[22px] w-[22px]" aria-hidden />{i.label.split(' ')[0]}
+              </a>
+            )
+          })}
+          <button onClick={() => setOpen(true)} aria-label="More sections" className={cn('flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-medium', open || (current && !TABS.includes(current.path)) ? 'text-primary' : 'text-muted-foreground')}>
+            <Menu className="h-[22px] w-[22px]" aria-hidden />More
+          </button>
+        </div>
+      </nav>
       <SecurityDialog open={secOpen} onClose={() => setSecOpen(false)} />
     </div>
   )
@@ -144,18 +182,21 @@ function Router() {
 
 function AuthFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr]">
-      <div className="hidden lg:flex flex-col justify-between bg-brand-dark text-[hsl(60_20%_92%)] p-12 relative overflow-hidden">
-        <div className="absolute -right-24 -bottom-24 h-96 w-96 rounded-full bg-[hsl(30_92%_48%)]/20 blur-3xl" />
-        <div className="bg-white rounded px-3 py-2 w-fit"><img src={LOGO} alt="Myka" className="h-10" /></div>
-        <div>
-          <div className="text-[11px] tracking-[0.25em] text-[hsl(30_92%_60%)] font-bold mb-3">MYKA QUAD LIMITED</div>
-          <h1 className="text-4xl font-extrabold leading-tight max-w-md">Invoices, receipts, books and forecasts — one place.</h1>
-          <p className="mt-4 opacity-70 max-w-md text-sm">Palm oil, gari and eggs, from Danlect and Theodora Farms to your customers. Every sale posts straight to the general journal.</p>
+    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
+      <div className="hidden lg:flex flex-col justify-between bg-brand-dark text-white p-12 relative overflow-hidden">
+        <div className="absolute -right-24 -bottom-24 h-96 w-96 rounded-full bg-[hsl(30_92%_48%)]/25 blur-3xl" aria-hidden />
+        <div className="absolute -left-20 top-1/3 h-72 w-72 rounded-full bg-[hsl(140_64%_40%)]/25 blur-3xl" aria-hidden />
+        <div className="bg-white rounded-[14px] px-3 py-2 w-fit shadow-lg"><img src={LOGO} alt="Myka" className="h-10" /></div>
+        <div className="relative">
+          <div className="text-xs tracking-[0.2em] text-[hsl(30_92%_62%)] font-semibold mb-3">MYKA QUAD LIMITED</div>
+          <h1 className="text-[40px] font-bold leading-[1.1] max-w-md">Invoices, receipts, books and forecasts. One place.</h1>
+          <p className="mt-4 text-white/70 max-w-md text-[15px] leading-relaxed">Palm oil, gari and eggs, from Danlect and Theodora Farms to your customers. Every sale posts straight to the general journal.</p>
         </div>
-        <div className="text-xs opacity-50">NO 377A, Tulip Road, Lakeside Estate · 0274051234</div>
+        <div className="text-xs text-white/50 relative">NO 377A, Tulip Road, Lakeside Estate · 0274051234</div>
       </div>
-      <div className="flex items-center justify-center p-6">{children}</div>
+      <div className="flex items-center justify-center p-5 pt-safe">
+        <div className="w-full max-w-sm bg-card rounded-[20px] p-6 sm:p-8 shadow-[0_8px_30px_rgb(0_0_0/0.06)] border">{children}</div>
+      </div>
     </div>
   )
 }
@@ -168,12 +209,12 @@ function Login() {
   if (pending) return <AuthFrame><MfaStep pending={pending} onCancel={() => { setPending(null); setP('') }} /></AuthFrame>
   return (
     <AuthFrame>
-      <form className="w-full max-w-sm" onSubmit={async e => {
+      <form className="w-full" onSubmit={async e => {
         e.preventDefault(); setBusy(true); setErr('')
         try { const r = await login(u, p); if (r.mfa) setPending(r) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
       }}>
         <img src={LOGO} alt="Myka" className="h-10 mb-6 lg:hidden" />
-        <h2 className="text-2xl font-extrabold">Sign in</h2>
+        <h2 className="text-[26px] font-bold">Sign in</h2>
         <p className="text-sm text-muted-foreground mb-6">Use the account your administrator created for you.</p>
         <div className="space-y-4">
           <Field label="Username"><TextInput autoFocus autoComplete="username" value={u} onChange={e => setU(e.target.value)} /></Field>
@@ -181,7 +222,6 @@ function Login() {
           {err && <div className="text-sm text-bad bg-bad/10 border border-bad/30 rounded px-3 py-2">{err}</div>}
           <Button className="w-full" disabled={busy}>{busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sign in</Button>
         </div>
-        <button type="button" className="mt-8 text-xs text-muted-foreground underline" onClick={() => { setApiUrl(''); location.reload() }}>Change database connection</button>
       </form>
     </AuthFrame>
   )
@@ -191,14 +231,14 @@ function Setup() {
   const [url, setUrl] = useState(getApiUrl()); const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false)
   return (
     <AuthFrame>
-      <form className="w-full max-w-md" onSubmit={async e => {
+      <form className="w-full" onSubmit={async e => {
         e.preventDefault(); setBusy(true); setMsg('')
         setApiUrl(url)
         try { await api('ping'); location.reload() } catch (x) { setMsg((x as Error).message); setApiUrl('') } finally { setBusy(false) }
       }}>
-        <h2 className="text-2xl font-extrabold">Connect the database</h2>
-        <p className="text-sm text-muted-foreground mt-1 mb-6">Paste the Web app URL from the Apps Script deployment in the <b>Myka Quad ERP</b> Google Drive folder (it ends in <span className="mono">/exec</span>).</p>
-        <Field label="Apps Script Web app URL"><TextInput value={url} onChange={e => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" /></Field>
+        <h2 className="text-[26px] font-bold">Connect the database</h2>
+        <p className="text-sm text-muted-foreground mt-1 mb-6">Enter the API address for this app. On the normal Myka Quad site this is just <span className="mono">/api</span>.</p>
+        <Field label="API address"><TextInput value={url} onChange={e => setUrl(e.target.value)} placeholder="/api" /></Field>
         {msg && <div className="text-sm text-bad mt-3">{msg}</div>}
         <Button className="w-full mt-4" disabled={busy || !url}>{busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Connect</Button>
       </form>
@@ -212,14 +252,14 @@ function ChangePassword() {
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
   return (
     <AuthFrame>
-      <form className="w-full max-w-sm" onSubmit={async e => {
+      <form className="w-full" onSubmit={async e => {
         e.preventDefault(); setErr('')
         if (n1 !== n2) { setErr("The new passwords don't match."); return }
         setBusy(true)
         try { const r = await api('changePassword', { current: cur, next: n1 }); setUser(r.user); await reload(); toast.success('Password updated') }
         catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
       }}>
-        <h2 className="text-2xl font-extrabold">Set your password</h2>
+        <h2 className="text-[26px] font-bold">Set your password</h2>
         <p className="text-sm text-muted-foreground mb-6">Hi {user?.name}. You're using a temporary password — choose your own (8+ characters with a number).</p>
         <div className="space-y-4">
           <Field label="Temporary password"><TextInput type="password" value={cur} onChange={e => setCur(e.target.value)} /></Field>
@@ -251,7 +291,7 @@ export default function App() {
   return (
     <AppProvider>
       <Gate />
-      <Toaster richColors position="top-right" />
+      <Toaster richColors position="top-center" />
     </AppProvider>
   )
 }
