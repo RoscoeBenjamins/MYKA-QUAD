@@ -1,16 +1,21 @@
 {
   "name": "myka-quad-erp",
   "private": true,
-  "description": "Myka Quad mini ERP — React front end (source/) + API on Vercel (api/, server/) + Supabase Postgres (db/)",
+  "description": "Myka Quad mini ERP — React front end (source/) + API (server/) on a Cloudflare Worker (worker/) with a Cloudflare D1 database (db/)",
   "engines": {
     "node": "22.x"
   },
   "scripts": {
-    "test": "node backend/test/api.test.js && node backend/test/mailer.test.js",
+    "test": "node backend/test/api.test.js && TEST_D1=1 node backend/test/api.test.js && node backend/test/d1-concurrency.test.js && node backend/test/mailer.test.js",
+    "build:site": "cd source && npx -y pnpm@10 install --frozen-lockfile && npx --no-install tsc -p tsconfig.app.json --noEmit && npx --no-install parcel build index.html --dist-dir dist --no-source-maps && mkdir -p ../_site && npx --no-install html-inline dist/index.html > ../_site/index.html && cp ../config.js ../_site/config.js",
+    "build": "npm test && npm run build:site",
+    "deploy": "npx wrangler deploy",
+    "dev": "npx wrangler dev",
     "dev:api": "node backend/test/server.js",
-    "build:vercel": "npm test && cd source && npx --no-install tsc -p tsconfig.app.json --noEmit && npx --no-install parcel build index.html --dist-dir dist --no-source-maps && mkdir -p ../_site && npx --no-install html-inline dist/index.html > ../_site/index.html && cp ../config.js ../_site/config.js"
+    "build:vercel": "mkdir -p _site && cp vercel-redirect.html _site/index.html"
   },
-  "dependencies": {
-    "pg": "^8.16.3"
+  "devDependencies": {
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.165.0"
   }
 }

@@ -17,7 +17,7 @@
 const { als, cur, UnitOfWork, Utilities, Session, LockService, PropertiesService, CacheService } = require('./runtime');
 
 var ADMIN_TEMP_PASSWORD = '';   // first-admin password comes from the ADMIN_TEMP env var
-var APP_VERSION = '2.0.0';
+var APP_VERSION = '3.0.0';
 var TOTP_ISSUER = 'Myka Quad';
 var MFA_CHALLENGE_MIN = 10;
 var MAX_EMAIL_BYTES = 3 * 1024 * 1024;   // Vercel request bodies are capped at 4.5 MB
@@ -71,8 +71,33 @@ var DEFAULT_SETTINGS = {
   twoFactorPolicy: 'all', emailReplyTo: 'mykaquadent@gmail.com', emailSenderName: 'MYKA QUAD LIMITED'
 };
 
-// Tables the request needs loaded (Audit is append-only; only auditLog reads it).
-var READ_ONLY_ACTIONS = { ping: 1, bootstrap: 1, listUsers: 1, auditLog: 1 };
+// Tables each action reads, so a request loads only what it needs (keeps D1 reads low).
+// Settings/Users/Sessions are always loaded (sign-in + seed check). Audit is append-only
+// except auditLog (last 500). Unknown actions load everything. Reading a table that was
+// not loaded throws, so a missing entry shows up in the tests rather than as bad data.
+var ALL_TABLES = ['Customers', 'Suppliers', 'Products', 'Invoices', 'InvoiceLines', 'Receipts',
+                  'Purchases', 'Expenses', 'Accounts', 'Journal'];
+var NEEDS = {
+  ping: [], login: [], verify2fa: [], logout: [], changePassword: [], regenerateRecovery: [],
+  listUsers: [], saveUser: [], resetPassword: [], deleteUser: [], reset2fa: [], saveSettings: [],
+  bootstrap: ALL_TABLES, loadDemo: ALL_TABLES, clearDemo: ALL_TABLES,
+  auditLog: ['Audit'],
+  saveCustomer: ['Customers'], deleteCustomer: ['Customers', 'Invoices'],
+  saveSupplier: ['Suppliers'], deleteSupplier: ['Suppliers', 'Purchases'],
+  saveProduct: ['Products'], deleteProduct: ['Products', 'InvoiceLines'],
+  recordInvoice: ['Customers', 'Products', 'Invoices', 'InvoiceLines', 'Accounts'],
+  updateInvoiceNextStep: ['Invoices'],
+  voidInvoice: ['Invoices', 'Receipts', 'Journal', 'Accounts'],
+  recordReceipt: ['Invoices', 'Receipts', 'Accounts'], voidReceipt: ['Receipts', 'Accounts'],
+  recordPurchase: ['Products', 'Accounts'], recordExpense: ['Accounts'],
+  postJournal: ['Accounts'], saveAccount: ['Accounts'],
+  emailDocument: ['Invoices', 'Receipts']
+};
+function tablesFor_(action) {
+  var base = ['Settings', 'Users', 'Sessions'];
+  var extra = NEEDS.hasOwnProperty(action) ? NEEDS[action] : ALL_TABLES.concat(['Audit']);
+  return base.concat(extra.filter(function (t) { return base.indexOf(t) < 0; }));
+}
 
 // =============================================================================
 //  HTTP entry point
@@ -86,9 +111,9 @@ var READ_ONLY_ACTIONS = { ping: 1, bootstrap: 1, listUsers: 1, auditLog: 1 };
 async function handle(req, opts) {
   req = req || {};
   var action = req.action, payload = req.payload || {}, token = req.token;
-  var withAudit = action === 'auditLog';
-  var lock = !READ_ONLY_ACTIONS[action];
-  return opts.store.run({ lock: lock, withAudit: withAudit }, async function (snapshot) {
+  // emailDocument has already sent the email when it commits, so it must never be re-run on a write
+  // conflict; it commits without the concurrency guard (it only stamps emailedAt/To and appends to Audit).
+  return opts.store.run({ tables: tablesFor_(action), allTables: Object.keys(SCHEMA), guard: action !== 'emailDocument' }, async function (snapshot) {
     var uow = new UnitOfWork(SCHEMA, snapshot.tables, snapshot.cache);
     var ctx = { uow: uow, env: Object.assign({}, opts.env || {}) };
     return als.run(ctx, async function () {
@@ -1029,4 +1054,4 @@ HANDLERS.emailDocument = async function (p, u) {
 var mailerFetch_ = function (url, init) { return fetch(url, init); };
 function setMailerFetch(fn) { mailerFetch_ = fn; }
 
-module.exports = { handle: handle, doGet: doGet, SCHEMA: SCHEMA, hash_: hash_, totpAt_: totpAt_, setMailerFetch: setMailerFetch };
+module.exports = { tablesFor_: tablesFor_, handle: handle, doGet: doGet, SCHEMA: SCHEMA, hash_: hash_, totpAt_: totpAt_, setMailerFetch: setMailerFetch };

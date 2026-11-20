@@ -1,10 +1,10 @@
-// End-to-end tests for the Node/Vercel API (server/core.js) against the in-memory store.
+// End-to-end tests for the API (server/core.js): in-memory store by default,
+// TEST_D1=1 runs the same tests against a real local Cloudflare D1 database (Miniflare).
 const assert = require('assert');
 const crypto = require('crypto');
 const core = require('../../server/core');
 const { makeMemStore } = require('../../server/store-mem');
-// TEST_DATABASE_URL=postgres://... runs the same tests against a real Postgres (schema from db/schema.sql)
-const store = process.env.TEST_DATABASE_URL ? require('../../server/store-pg').makePgStore(process.env.TEST_DATABASE_URL) : makeMemStore();
+let store = makeMemStore(), d1 = null;
 const env = { ADMIN_TEMP: 'TempPass123' };
 const sent = [];
 core.setMailerFetch(async (url, init) => { sent.push({ url, opt: { payload: init.body } }); return { status: 200, text: async () => '{"ok":true,"from":"mykaquadent@gmail.com"}' }; });
@@ -39,6 +39,7 @@ async function signIn(username, password) {
 }
 
 (async () => {
+if (process.env.TEST_D1) { d1 = await require('./d1-local').localD1(); store = require('../../server/store-d1').makeD1Store(d1.db); console.log('Using local D1'); }
 // RFC 6238 test vector (SHA1, T=59s -> 94287082)
 assert.equal(core.totpAt_('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 1), '287082');
 
@@ -170,6 +171,34 @@ assert.ok(bb.invoices.find(i => i.invoiceNo === inv.invoiceNo).emailedAt);
 await ok('emailDocument', { kind: 'receipt', no: r.receiptNo, to: 'hallmark@example.com', pdfBase64: pdf }, T);
 assert.match((await call('emailDocument', { kind: 'receipt', no: r.receiptNo, to: 'a@b.com', pdfBase64: pdf }, s2.token)).error || '', /access|disabled|sign/i);
 console.log('2FA + EMAIL TESTS PASSED');
-if (store.pool) await store.pool.end();
+
+// ---- every remaining action (each loads only its own tables) ----
+const sup = (await ok('saveSupplier', { name: 'Test Supplier', phone: '0200000000' }, T)).supplier;
+assert.equal((await ok('saveSupplier', { id: sup.id, name: 'Test Supplier', phone: '0200000001' }, T)).supplier.phone, '0200000001');
+await ok('deleteSupplier', { id: sup.id }, T);
+assert.match((await call('deleteSupplier', { id: 'SUP-01' }, T)).error, /purchases/);
+await ok('saveProduct', { code: 'TST-1', name: 'Test', price: 10 }, T);
+await ok('saveProduct', { code: 'TST-2', originalCode: 'TST-1', name: 'Test renamed', price: 12 }, T);
+await ok('deleteProduct', { code: 'TST-2' }, T);
+assert.match((await call('deleteProduct', { code: 'EGG-CRT' }, T)).error, /sales history/);
+const c2 = (await ok('saveCustomer', { name: 'Throwaway' }, T)).customer;
+await ok('deleteCustomer', { id: c2.id }, T);
+assert.match((await call('deleteCustomer', { id: c.id }, T)).error, /invoices/);
+assert.equal((await ok('updateInvoiceNextStep', { invoiceNo: inv.invoiceNo, nextStep: 'Call Ama', dueDate: '2026-12-01' }, T)).invoice.nextStep, 'Call Ama');
+const inv3 = (await ok('recordInvoice', { customerId: c.id, lines: [{ productCode: 'EGG-CRT', qty: 1 }] }, T)).invoice;
+const r3 = (await ok('recordReceipt', { invoiceNo: inv3.invoiceNo, amount: 50, method: 'MoMo' }, T)).receipt;
+assert.match((await call('voidInvoice', { invoiceNo: inv3.invoiceNo }, T)).error, /receipts/);
+await ok('voidReceipt', { receiptNo: r3.receiptNo }, T);
+await ok('voidInvoice', { invoiceNo: inv3.invoiceNo, reason: 'test' }, T);
+await ok('saveAccount', { code: '6100', name: 'Rent', type: 'Expense' }, T);
+assert.ok((await ok('auditLog', {}, T)).audit.length > 10);
+await ok('resetPassword', { id: kofi.id, password: 'KofiPass9' }, T);
+await ok('deleteUser', { id: kofi.id }, T);
+b = await ok('bootstrap', {}, T); [d, cr] = tb(b.journal); assert.equal(d, cr, 'balanced at the end');
+const k4 = await signIn('admin', 'NewPass2026');
+await ok('logout', {}, k4.token);
+assert.equal((await call('bootstrap', {}, k4.token)).ok, false, 'logged out');
+console.log('ALL ACTIONS COVERED');
+if (d1) await d1.dispose();
 
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -1,3 +1,4 @@
+// RETIRED 2026-11-20: production uses server/store-d1.js (Cloudflare D1). Kept for reference only.
 /**
  * Supabase Postgres store. One API request = one transaction:
  *   BEGIN → (advisory lock for writes) → load tables → run action → apply changes → COMMIT

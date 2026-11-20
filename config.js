@@ -1,5 +1,5 @@
-// API endpoint for the Myka Quad ERP — the Vercel function in api/index.js (database: Supabase).
-// On the Vercel site it is same-origin; the old GitHub Pages address uses the Vercel API directly.
+// API endpoint for the Myka Quad ERP: the Cloudflare Worker (worker/index.js), same origin as the site.
+// Old addresses (GitHub Pages) go to the retired Vercel endpoint, which only says the app has moved.
 window.MYKA_CONFIG = {
   apiUrl: /github\.io$/.test(location.hostname) ? 'https://myka-quad.vercel.app/api' : '/api'
 };

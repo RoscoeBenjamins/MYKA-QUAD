@@ -1,4 +1,4 @@
-/** In-memory store with the same contract as store-pg.js — used by the tests and the local dev server. */
+/** In-memory store with the same contract as store-d1.js — used by the tests and the local dev server. */
 function makeMemStore() {
   const tables = {};
   const cache = new Map();
@@ -9,10 +9,12 @@ function makeMemStore() {
     tables,
     run(opts, fn) {
       const job = chain.then(async () => {
+        let want = opts.tables;
+        if (!(tables.Settings || []).length) want = opts.allTables; // empty database: seed needs everything
         const snapTables = {};
-        Object.keys(tables).forEach((t) => {
-          let rows = tables[t];
-          if (t === 'Audit') rows = opts.withAudit ? rows.slice(-500) : [];
+        want.forEach((t) => {
+          let rows = tables[t] || [];
+          if (t === 'Audit') rows = rows.slice(-500);
           snapTables[t] = clone(rows);
         });
         const now = Date.now();

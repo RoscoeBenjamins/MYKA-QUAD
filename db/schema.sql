@@ -1,3 +1,4 @@
+-- RETIRED 2026-11-20: the live schema is db/migrations/0001_init.sql (Cloudflare D1). Kept for reference.
 -- Myka Quad ERP schema (Supabase Postgres). One table per former Google Sheet tab.
 -- Column names keep the original camelCase so the API logic is unchanged.
 -- Only the API (Vercel function, connecting as the myka_api role) can touch these tables: RLS is on and the

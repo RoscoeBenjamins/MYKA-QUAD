@@ -1,6 +1,6 @@
 # Myka Quad — Mini ERP
 
-Live: **https://myka-quad.vercel.app** (the old GitHub Pages address keeps working and uses the same API)
+Live: on Cloudflare — a Worker named **myka-quad** (address in the Cloudflare dashboard, `*.workers.dev`).
 
 Web version of the Myka Quad master workbook: invoices, receipts, purchases, expenses,
 customers, products, suppliers, double-entry accounting (general journal, trial balance, P&L,
@@ -8,25 +8,23 @@ balance sheet, VAT report), trend analysis, forecasting, Salesforce-style data-h
 an admin portal for users and access.
 
 ```
-browser ──► Vercel (London)
-             ├─ /            source/ → single-file index.html + config.js
-             └─ /api         api/index.js → server/core.js (business logic, 2-step login)
-                                 │  one transaction per request, writes serialised by an advisory lock
+browser ──► Cloudflare Worker "myka-quad"  (worker/index.js)
+             ├─ static files  _site/  (source/ → single-file index.html + config.js)
+             └─ /api          server/core.js (business logic, 2-step login)
+                                 │  one read batch + one write batch per request (optimistic concurrency)
                                  ▼
-                             Supabase Postgres (eu-west-2) — tables in db/schema.sql
-                                 │  RLS on; only the myka_api role has access (no public REST access)
+                             Cloudflare D1 "myka-quad-db" (London) — db/migrations/0001_init.sql
              emailDocument ──► "Myka Quad Mailer" Apps Script (mykaquadent@gmail.com) ──► customer
 ```
 
-* Push to `main` → Vercel runs `npm test` (API tests + mailer tests), type-checks and builds, then deploys.
-  A failing test blocks the deploy.
+* Push to `main` → Workers Builds runs `npm run build` (API tests in memory AND on a local D1,
+  a concurrency test, mailer tests, type-check, site build) then `npx wrangler deploy`. A failing test blocks the deploy.
 * `server/core.js` — the API (ported 1:1 from the old Apps Script `backend/Code.gs`, kept for reference).
-  `server/runtime.js` — per-request unit of work + Apps Script service shims. `server/store-pg.js` — Postgres.
-* `db/schema.sql` — database schema and access rules.
-* Vercel environment variables (never in this repo): `DATABASE_URL` (Supabase pooler, role `myka_api`),
-  `MAILER_URL`, `MAILER_SECRET`, optional `ADMIN_TEMP` (first-admin password on an empty database).
-* Local: `npm install && npm test`; `TEST_DATABASE_URL=postgres://… npm test` runs the same tests on Postgres;
-  `node backend/test/server.js` is a local API on :8787 with an in-memory database.
+  `server/runtime.js` — per-request unit of work + Apps Script service shims. `server/store-d1.js` — D1 store.
+* Worker settings: var `MAILER_URL` (in wrangler.jsonc), secret `MAILER_SECRET` (dashboard → Settings →
+  Variables and Secrets), optional `ADMIN_TEMP` (first-admin password on an empty database).
+* Local: `npm install && npm test`; `npm run build:site && npx wrangler dev` runs the whole app locally.
+* Retired: Vercel (`api/index.js` now only says "moved"), Supabase (`server/store-pg.js`, `db/schema.sql`).
 
 ## Posting rules (same as the Excel macros)
 

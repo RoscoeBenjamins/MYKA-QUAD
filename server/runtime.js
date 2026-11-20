@@ -7,8 +7,8 @@
  *   - CacheService (login lockouts, 2-step challenges) backed by the "Cache" table
  *   - Utilities / Session / LockService / PropertiesService shims
  * Everything is per request (AsyncLocalStorage), so concurrent requests never share state.
- * A store (store-pg.js in production, store-mem.js in tests) loads the tables at the
- * start of a request and commits the changes at the end, in one transaction.
+ * A store (store-d1.js in production, store-mem.js in tests) loads the tables the action
+ * needs at the start of a request and commits the changes at the end, in one transaction.
  */
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
@@ -24,6 +24,7 @@ function cur() {
 class UnitOfWork {
   constructor(schema, tables, cacheRows) {
     this.schema = schema;
+    this.loaded = new Set(Object.keys(tables || {}));   // tables not loaded may be appended to, never read
     this.tables = {};         // name -> canonical rows (plain objects with _row)
     this.cache = {};          // read_ copies (same semantics as Code.gs' _cache)
     this.deleted = {};        // name -> Set(real _row ids)
@@ -55,6 +56,7 @@ class UnitOfWork {
   }
   read(name) {
     if (!this.tables[name]) throw new Error('Missing sheet ' + name);
+    if (!this.loaded.has(name)) throw new Error('Internal error: table ' + name + ' was not loaded for this action.');
     if (!this.cache[name]) this.cache[name] = this.tables[name].map((r) => Object.assign({}, r));
     return this.cache[name];
   }
@@ -65,6 +67,7 @@ class UnitOfWork {
   }
   update(name, rowId, obj) {
     const rows = this.tables[name];
+    if (typeof rowId === 'number' && !this.loaded.has(name)) throw new Error('Internal error: table ' + name + ' was not loaded for this action.');
     const i = rows.findIndex((r) => r._row === rowId);
     if (i < 0) throw new Error('Row not found in ' + name);
     rows[i] = this.norm_(name, obj, rowId);

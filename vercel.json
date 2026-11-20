@@ -1,18 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install && cd source && npx -y pnpm@10 install --frozen-lockfile",
+  "installCommand": "echo \"nothing to install\"",
   "buildCommand": "npm run build:vercel",
   "outputDirectory": "_site",
   "framework": null,
   "regions": [
     "lhr1"
   ],
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 60,
-      "includeFiles": "server/**"
-    }
-  },
   "headers": [
     {
       "source": "/config.js",
