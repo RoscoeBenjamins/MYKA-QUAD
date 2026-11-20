@@ -6,3 +6,7 @@
   X-Robots-Tag: noindex, nofollow
 /config.js
   Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Content-Type: application/manifest+json

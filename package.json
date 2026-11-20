@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test": "node backend/test/api.test.js && TEST_D1=1 node backend/test/api.test.js && node backend/test/d1-concurrency.test.js && node backend/test/mailer.test.js",
-    "build:site": "cd source && npx -y pnpm@10 install --frozen-lockfile && npx --no-install tsc -p tsconfig.app.json --noEmit && npx --no-install parcel build index.html --dist-dir dist --no-source-maps && mkdir -p ../_site && npx --no-install html-inline dist/index.html > ../_site/index.html && cp ../config.js ../_site/config.js && cp ../site-extra/_headers ../site-extra/robots.txt ../_site/",
+    "build:site": "cd source && npx -y pnpm@10 install --frozen-lockfile && npx --no-install tsc -p tsconfig.app.json --noEmit && npx --no-install parcel build index.html --dist-dir dist --no-source-maps && mkdir -p ../_site && npx --no-install html-inline dist/index.html > ../_site/index.html && cp ../config.js ../_site/config.js && cp -r ../site-extra/. ../_site/",
     "build": "npm test && npm run build:site",
     "deploy": "npx wrangler deploy",
     "dev": "npx wrangler dev",

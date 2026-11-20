@@ -16,10 +16,18 @@
     <script>
       try { document.documentElement.dataset.theme = localStorage.getItem('myka.theme') === 'dark' ? 'dark' : 'light' } catch (e) {}
       document.write('<script src="config.js?v=' + Date.now() + '"><\/script>');
+      // app icons + install manifest (written here so the bundler leaves these static files alone)
+      document.write('<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/png" href="/icons/favicon-64.png"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">');
     </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // installable app + offline shell (only on the Cloudflare site, not the old github.io copy)
+      if ('serviceWorker' in navigator && !/github\.io$/.test(location.hostname)) {
+        addEventListener('load', function () { var sw = ['/sw', 'js'].join('.'); navigator.serviceWorker.register(sw).catch(function () {}) })
+      }
+    </script>
   </body>
 </html>
